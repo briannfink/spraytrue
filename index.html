@@ -114,6 +114,9 @@ nav.tabs button[aria-selected="true"]{color:var(--brand);box-shadow:inset 0 3px 
 .seg button.on{background:var(--brand);color:var(--brandInk)}
 .toast{position:fixed;left:50%;bottom:calc(90px + env(safe-area-inset-bottom));transform:translateX(-50%);background:#111;color:#fff;padding:12px 18px;border-radius:12px;font-weight:650;z-index:50;opacity:0;transition:opacity .2s;pointer-events:none;max-width:90vw;text-align:center}
 .toast.on{opacity:.95}
+.toast.undo{display:flex;align-items:center;gap:14px;padding:8px 8px 8px 18px;white-space:nowrap}
+.toast.undo.on{pointer-events:auto;opacity:1}
+.toast.undo button{min-height:44px;padding:0 16px;border-radius:10px;border:2px solid #8fd18f;background:transparent;color:#bff0bf;font-weight:800;font-size:16px}
 dialog{border:0;border-radius:16px;padding:0;max-width:640px;width:calc(100% - 24px);background:var(--card);color:var(--ink)}
 dialog::backdrop{background:rgba(0,0,0,.5)}
 dialog .dh{position:sticky;top:0;background:var(--card);padding:12px 14px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;gap:8px}
@@ -885,7 +888,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
 <main>
 <section class="view on" id="v-mix" role="tabpanel">
   <div class="card">
-    <h2>Sprayer &amp; field</h2>
+    <h2 style="justify-content:space-between">Sprayer &amp; field <button class="btn danger sm" id="btnClearMix" type="button" aria-label="Clear the form and start a new mix">✕ Clear</button></h2>
     <div class="grid">
       <div>
         <label class="f" for="mixName">Mix name</label>
@@ -1027,6 +1030,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
 
 <dialog id="dlg"><div class="dh"><b id="dlgT"></b><button class="btn sm alt" id="dlgX">Close</button></div><div class="db" id="dlgB"></div></dialog>
 <div class="toast" id="toast"></div>
+<div class="toast undo" id="undoToast" role="status" aria-live="polite"><span id="undoMsg">Mix cleared</span> <button type="button" id="btnUndoClear">Undo</button></div>
 <div id="pvBar">
   <div class="pvrow"><button class="btn alt sm" id="pvBack">‹ Back</button><b id="pvTitle">Print view</b></div>
   <div class="pvbtns"><button class="btn" id="pvPrint">🖨 Print</button><button class="btn alt" id="pvShare">📤 Share / Save PDF</button><button class="btn alt" id="pvDl">⬇ Download</button></div>
@@ -1053,7 +1057,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
    3. Storage (localStorage)
    4. UI: Mix, Order/Jar test, Lookup (EPA), Saved, Print
    ===================================================================== */
-const APP_VERSION = "2.3.0";
+const APP_VERSION = "2.4.0";
 const TM = window.TM = {};
 
 /* ---------- 1. Constants ---------- */
@@ -1420,6 +1424,20 @@ function renderAll(){
   return R;
 }
 
+/* ---------- v2.4 Clear mix with Undo ---------- */
+function clearMix(){
+  const prev = clone(S.mix);
+  S.mix = blankMix(); saveCurrent(); loadMixIntoForm(); if (typeof renderSaved==="function") renderSaved();
+  $("toast").classList.remove("on");
+  const t = $("undoToast"); t.classList.add("on");
+  clearTimeout(clearMix._t); clearMix._t = setTimeout(()=>{ t.classList.remove("on"); clearMix._prev=null; }, 8000);
+  clearMix._prev = prev;
+}
+function undoClearMix(){
+  if (!clearMix._prev) return;
+  S.mix = clearMix._prev; clearMix._prev = null; clearTimeout(clearMix._t); $("undoToast").classList.remove("on");
+  saveCurrent(); loadMixIntoForm(); if (typeof renderSaved==="function") renderSaved(); toast("Mix restored");
+}
 /* ---------- Mix events ---------- */
 function bindMixInputs(){
   const upd = () => { S.mix.name=$("mixName").value; S.mix.tank.v=$("tankSize").value; S.mix.carrier.v=$("carrierRate").value; S.mix.area.v=$("area").value;
@@ -1543,6 +1561,7 @@ function bindSaved(){
     $("smDup").onclick = ()=>{ const c = clone(r); c.id=uid(); c.name=r.name+" (copy)"; c.mix.id=c.id; c.mix.name=c.name; c.updated=Date.now(); S.mixes.unshift(c); persist("mixes"); renderSaved(); closeDlg(); toast("Duplicated"); };
     $("smDel").onclick = ()=>{ if(!confirm("Delete “"+r.name+"”?")) return; S.mixes = S.mixes.filter(x=>x!==r); persist("mixes"); if (S.mix.id===r.id){ S.mix.id=null; saveCurrent(); } renderSaved(); renderAll(); closeDlg(); toast("Deleted"); };
   });
+  $("btnClearMix").onclick = clearMix; $("btnUndoClear").onclick = undoClearMix;
   $("btnNewMix").onclick = ()=>{ S.mix = blankMix(); saveCurrent(); loadMixIntoForm(); renderSaved(); showTab("mix"); toast("New mix"); };
   $("btnSaveAs").onclick = ()=>saveMix(true);
   $("btnSave").onclick = ()=>saveMix(false);

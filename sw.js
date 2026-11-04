@@ -1,6 +1,6 @@
-// TankMix service worker v2.3.0. Pages: network first (so updates show up), cached copy when offline.
+// TankMix service worker v2.4.0. Pages: network first (so updates show up), cached copy when offline.
 // Other app files: cache first. Cross-origin requests (EPA, Open-Meteo, map tiles) and the /preview/ build are never touched.
-const CACHE = "tankmix-2.3.0-84c50160";
+const CACHE = "tankmix-2.4.0-501775e2";
 const SHELL = ["./", "./index.html", "./manifest.webmanifest", "./icons/icon-192.png", "./icons/icon-512.png", "./icons/maskable-512.png"];
 const PREVIEW = new URL("./preview/", self.registration.scope).pathname;
 self.addEventListener("install", e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL.map(u => new Request(u, {cache: "reload"})))).then(() => self.skipWaiting())); });
