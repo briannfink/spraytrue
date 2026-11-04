@@ -125,6 +125,9 @@ dialog .db{padding:14px;max-height:72vh;overflow:auto}
 .spinner{display:inline-block;width:18px;height:18px;border:3px solid var(--line);border-top-color:var(--brand);border-radius:50%;animation:sp 1s linear infinite;vertical-align:middle}
 @keyframes sp{to{transform:rotate(360deg)}}
 .chk{display:flex;gap:8px;align-items:center;font-weight:650;font-size:15px}
+.tppanel{margin-top:10px;border-top:1px solid var(--line);padding-top:10px}
+.tpst{gap:8px;padding:8px 8px 8px 10px}.tpst.off .nm{opacity:.6}.tpst .iconbtn{flex:0 0 auto}
+.tpst .chk{min-width:30px;min-height:44px}
 .chk input{width:22px;height:22px;min-height:0;flex:0 0 auto}
 .fert{margin-top:10px;padding:12px;border:2px dashed var(--line);border-radius:12px}
 .subhd{font-weight:800;font-size:15px;margin:0 0 8px}
@@ -984,7 +987,8 @@ svg.leaflet-image-layer.leaflet-interactive path {
       <div class="row"><span class="f" style="margin:0;min-width:90px">Theme</span>
         <div class="seg" id="segTheme"><button data-v="light">Sun</button><button data-v="dark">Dark</button></div></div>
       <div><label class="f" for="wxSrc">Weather source</label><select id="wxSrc"></select>
-        <div class="tiny muted" style="margin-top:4px">Tempest stations will plug in here later.</div></div>
+        <div class="tiny muted" id="wxSrcNote" style="margin-top:4px">Open-Meteo is a free model forecast. Choose Tempest to use live readings from your own WeatherFlow Tempest stations.</div>
+        <div id="tpPanel" class="tppanel" hidden></div></div>
       <p class="tiny muted" style="margin:0">Data is stored only in this browser (localStorage). Use Saved › Backup to move it to another device. <span id="verLbl"></span></p>
     </div>
   </div>
@@ -1014,7 +1018,8 @@ svg.leaflet-image-layer.leaflet-interactive path {
       <button class="btn alt" id="btnImport">Import backup</button>
     </div>
     <input type="file" id="importFile" accept="application/json,.json" hidden>
-    <p class="tiny muted" style="margin:8px 0 0">A backup includes saved mixes, My products (EPA and custom), saved fields, spray records (with field locations) and settings.</p>
+    <label class="chk" style="margin-top:10px"><input type="checkbox" id="bkTokens"> Include Tempest access tokens</label>
+    <p class="tiny muted" style="margin:8px 0 0">A backup includes saved mixes, My products (EPA and custom), saved fields, spray records (with field locations) and settings. Tempest station names and choices are included; the access tokens are left out unless you tick the box above. Anyone with the file could read your station data with them, so only tick it for a copy you keep private.</p>
   </div>
 </section>
 </main>
@@ -1057,7 +1062,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
    3. Storage (localStorage)
    4. UI: Mix, Order/Jar test, Lookup (EPA), Saved, Print
    ===================================================================== */
-const APP_VERSION = "2.4.0";
+const APP_VERSION = "2.5.0";
 const TM = window.TM = {};
 
 /* ---------- 1. Constants ---------- */
@@ -1587,7 +1592,9 @@ function bindSettings(){
   $("segTheme").onclick = e=>{ const v = e.target.dataset.v; if(!v) return; S.settings.theme=v; persist("settings"); applyTheme(); renderSettings(); };
   $("jarSize").onchange = e=>{ S.settings.jar = +e.target.value; persist("settings"); renderAll(); };
   $("btnExport").onclick = ()=>{
-    const data = JSON.stringify({app:"tankmix-pro", version:APP_VERSION, exported:new Date().toISOString(), settings:S.settings, mixes:S.mixes, library:S.library, fields:S.fields, log:S.log, current:S.mix}, null, 1);
+    // v2.5: Tempest station choices always; access tokens only when "Include Tempest access tokens" is ticked
+    const withTok = !!($("bkTokens") && $("bkTokens").checked);
+    const data = JSON.stringify({app:"tankmix-pro", version:APP_VERSION, exported:new Date().toISOString(), settings:S.settings, mixes:S.mixes, library:S.library, fields:S.fields, log:S.log, current:S.mix, tempest:TM.TP.backup(withTok)}, null, 1);
     const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([data],{type:"application/json"})); a.download = "tankmix-backup-"+localDate()+".json"; document.body.appendChild(a); a.click(); a.remove();
   };
   $("btnImport").onclick = ()=>$("importFile").click();
@@ -1597,7 +1604,8 @@ function bindSettings(){
       const merge = (a,b)=>{ const mp = new Map(a.map(x=>[x.id,x])); (b||[]).forEach(x=>mp.set(x.id,x)); return [...mp.values()]; };
       S.mixes = merge(S.mixes, d.mixes); S.library = merge(S.library, d.library).map(normLib); S.log = merge(S.log, d.log); S.fields = merge(S.fields, d.fields);
       persist("mixes"); persist("library"); persist("log"); persist("fields"); renderLog(); renderFields();
-      renderSaved(); renderLibrary(); renderProducts(); toast("Backup imported"); } catch(err){ toast("That file isn't a TankMix backup"); } };
+      const nt = d.tempest ? TM.TP.restore(d.tempest) : 0;
+      renderSaved(); renderLibrary(); renderProducts(); toast("Backup imported"+(nt?" · "+nt+" Tempest account"+(nt===1?"":"s")+" added":"")); } catch(err){ toast("That file isn't a TankMix backup"); } };
     rd.readAsText(f); e.target.value=""; };
 }
 
@@ -2100,14 +2108,15 @@ TM.renderCal = renderCal;
 /* ---------- Weather: pluggable sources ----------
    A source is { label, ready, needsLocation, async fetch(loc) } and fetch() resolves to
    { place, tz, source, now:{at,tempF,rh,windMph,gustMph,windDir,precipIn}, hours:[{t,tempF,t80F,rh,windMph,gustMph,windDir,pop,precipIn,isDay}], sun:[{rise,set}] }.
-   Open-Meteo is built in. A WeatherFlow Tempest source can be added later with WX.register("tempest", {...})
-   using the same shape (see README). Tempest gives on-site wind/temp/RH; the forecast part can still come from Open-Meteo. */
+   Open-Meteo is built in. v2.5 registers the WeatherFlow Tempest source in part10.js with the same shape: current
+   conditions from the station, hourly outlook from Open-Meteo at the station's spot. A source may have usable() (Tempest:
+   at least one station turned on); if not, Open-Meteo is used. */
 // Open-Meteo abbreviations are sometimes "GMT-6"; prefer the browser's name for the zone (CST, MDT…)
 function tzName(zone, abbr){ try { const p = new Intl.DateTimeFormat("en-US",{timeZone:zone, timeZoneName:"short"}).formatToParts(new Date()).find(x=>x.type==="timeZoneName"); if (p && !/^GMT/.test(p.value)) return p.value; } catch(e){} return abbr || zone || ""; }
 const WX = TM.WX = {
   sources:{},
   register(id, src){ this.sources[id] = Object.assign({id}, src); },
-  active(){ const s = this.sources[S.settings.wxSrc]; return s && s.ready ? s : this.sources.openmeteo; }
+  active(){ const s = this.sources[S.settings.wxSrc]; return s && s.ready && (!s.usable || s.usable()) ? s : this.sources.openmeteo; }
 };
 const OM = "https://api.open-meteo.com/v1/forecast", OMGEO = "https://geocoding-api.open-meteo.com/v1/search";
 WX.register("openmeteo", { label:"Open-Meteo (free, no key; model forecast)", ready:true, needsLocation:true,
@@ -2120,8 +2129,6 @@ WX.register("openmeteo", { label:"Open-Meteo (free, no key; model forecast)", re
       hours: H.time.map((t,i)=>({ t, tempF:H.temperature_2m[i], t80F:H.temperature_80m?H.temperature_80m[i]:null, rh:H.relative_humidity_2m[i], windMph:H.wind_speed_10m[i], gustMph:H.wind_gusts_10m[i], windDir:H.wind_direction_10m[i], pop:H.precipitation_probability[i], precipIn:H.precipitation[i], isDay:H.is_day[i] })),
       sun: (d.daily.time||[]).map((t,i)=>({rise:d.daily.sunrise[i], set:d.daily.sunset[i]})) };
   }});
-WX.register("tempest", { label:"WeatherFlow Tempest station (coming later)", ready:false, needsLocation:false,
-  async fetch(){ throw new Error("Tempest isn't connected yet"); } });
 
 const COMPASS = ["N","NNE","NE","ENE","E","ESE","SE","SSE","S","SSW","SW","WSW","W","WNW","NW","NNW"];
 const compass = d => (d==null || d==="" || !isFinite(d)) ? "" : COMPASS[Math.round(((+d%360)+360)%360/22.5)%16];
@@ -2141,6 +2148,13 @@ function sprayFlags(h, ctx){
   if (t >= 90) add("poor", `Hot (${fmt(t,0)}°F): high evaporation and volatility risk. Some labels restrict spraying above certain temperatures.`);
   else if (t >= 85) add("caution", `Warm (${fmt(t,0)}°F): watch volatility and evaporation.`);
   if (h.rh!=null && h.rh < 40) add("caution", `Low humidity (${fmt(h.rh,0)}%): fine droplets evaporate faster.`);
+  // Delta T (dry bulb minus wet bulb, °C) from a Tempest station; common guidance: 2–8 good, under 2 or 8–10 caution, over 10 avoid
+  const dt = h.deltaTC==null || h.deltaTC==="" ? null : +h.deltaTC;
+  if (dt!=null && isFinite(dt)){
+    if (dt > 10) add("poor", `Delta T ${fmt(dt,1)}°C is over 10: droplets evaporate fast. Common guidance is not to spray.`);
+    else if (dt > 8) add("caution", `Delta T ${fmt(dt,1)}°C is above the 2–8 range: use coarser droplets and watch evaporation.`);
+    else if (dt < 2) add("caution", `Delta T ${fmt(dt,1)}°C is under 2: fine droplets stay airborne longer. Check for an inversion.`);
+  }
   if (h.pop!=null && h.pop >= 50) add("poor", `Rain likely (${fmt(h.pop,0)}%).`);
   else if (h.pop!=null && h.pop >= 30) add("caution", `Rain chance ${fmt(h.pop,0)}%.`);
   const level = F.some(f=>f.lvl==="poor") ? "poor" : F.some(f=>f.lvl==="caution") ? "caution" : "good";
@@ -2185,7 +2199,8 @@ async function placeSearch(q){
 }
 TM.placeSearch = placeSearch;
 // Weather for any spot without touching the Weather tab's own reading (used by the spray-record form for a field pin)
-async function weatherAt(loc){ const d = await WX.active().fetch(loc); d.fetched = new Date().toISOString(); return d; }
+// v2.5: a spot-based lookup always uses a location source (Open-Meteo); Tempest stations are picked by the spray form itself
+async function weatherAt(loc){ const s = WX.active(), src = s.needsLocation ? s : WX.sources.openmeteo; const d = await src.fetch(loc); d.fetched = new Date().toISOString(); return d; }
 // Set the Weather tab's location only when none is set yet (v2.3: the spray form can find one)
 function adoptWxLoc(loc, d){
   if (S.settings.wxLoc) return false;
@@ -2218,34 +2233,54 @@ async function geocode(q){
 TM.geocode = geocode;
 function renderWx(){
   const el = $("wxOut"); if (!el) return;
+  const tp = WX.active().id==="tempest", wantTp = S.settings.wxSrc==="tempest";
   $("wxLoc").innerHTML = locLabel();
+  if ($("wxTpRow")){ // v2.5: Tempest shows a station picker instead of the place row
+    $("wxLocRow").hidden = tp; $("wxGeo").hidden = tp; $("wxGeo").style.display = tp ? "none" : ""; $("wxTpRow").hidden = !tp; $("wxBtns").classList.toggle("g2", !tp);
+    $("wxGet").innerHTML = tp ? "📡 Get station reading" : "🌤 Get local weather";
+    if (tp){ const E = TP.stations(), cur = TP.weatherStation(), dfl = TP.defStation();
+      $("wxStation").innerHTML = E.map(s=>`<option value="${esc(s.id)}"${cur&&String(cur.id)===String(s.id)?" selected":""}>${esc(s.label)}${E.length>1&&dfl&&String(s.id)===String(dfl.id)?" (default)":""}${E.length>1?" · "+esc(s.acctName):""}</option>`).join("");
+      $("wxStation").disabled = E.length < 2; }
+  }
   const d = WXS.data;
-  let h = WXS.err ? `<div class="flag caution">${esc(WXS.err)}</div>` : "";
-  if (WXS.busy) h += `<div style="margin-top:8px"><span class="spinner"></span> Getting weather…</div>`;
+  let h = wantTp && !tp ? `<div class="flag caution">Tempest is the weather source, but no station is connected or turned on, so this uses Open-Meteo. <a href="#" data-go="set">Settings</a></div>` : "";
+  h += WXS.err ? `<div class="flag caution">${esc(WXS.err)}</div>` : "";
+  if (WXS.busy) h += `<div style="margin-top:8px"><span class="spinner"></span> ${tp?"Getting station reading…":"Getting weather…"}</div>`;
   if (d && d.now){
-    const n = d.now, cur = Object.assign({}, n, {pop: d.hours[0] && d.hours[0].pop, isDay: d.hours[0] && d.hours[0].isDay, t80F: d.hours[0] && d.hours[0].t80F});
-    const ev = sprayFlags(cur, {nearDusk: nearDusk(n.at, d.sun)}), rs0 = rainSoon(d.hours), rs = rs0 && !(rs0===d.hours[0] && num(cur.pop)>=30) ? rs0 : null;
-    const age = (Date.now() - Date.parse(d.fetched))/60000;
-    h += `<div class="row" style="justify-content:space-between;margin:10px 0 6px"><b>Now · ${esc(hhmm(n.at))} ${esc(d.tz||"")}</b><span class="pill ${ev.level}">${{good:"Good",caution:"Caution",poor:"Poor"}[ev.level]}</span></div>
+    const n = d.now, H = d.hours||[], T = d.tempest, cur = Object.assign({}, n, {pop: H[0] && H[0].pop, isDay: H[0] && H[0].isDay, t80F: H[0] && H[0].t80F});
+    // Tempest: the station's 2 m temp vs the model's 80 m temp would mix two sources, so use the model's own 80 m − 2 m difference
+    if (T && H[0] && H[0].t80F!=null && H[0].tempF!=null) cur.t80F = n.tempF + (H[0].t80F - H[0].tempF);
+    const ev = sprayFlags(cur, {nearDusk: nearDusk(n.at, d.sun)}), rs0 = rainSoon(H), rs = rs0 && !(rs0===H[0] && num(cur.pop)>=30) ? rs0 : null;
+    const age = (Date.now() - Date.parse(d.fetched))/60000, stale = T && TP.ageMin(T.ts) > TP.STALE_MIN;
+    const tile = (k, v, sub) => `<div><div class="k">${k}</div><div class="v">${v}</div>${sub?`<div class="tiny muted">${sub}</div>`:""}</div>`;
+    if (d.fallback) h += `<div class="flag caution">Tempest unavailable: ${esc(d.fallback)}. Showing Open-Meteo model data for the station's location instead.</div>`;
+    if (T) h += `<div class="small" style="margin-top:10px">📡 <b>${esc(T.label)}</b> <span class="muted">· ${esc(T.acct||"")}</span></div>`;
+    h += `<div class="row" style="justify-content:space-between;margin:${T?"4px":"10px"} 0 6px"><b>Now · ${esc(hhmm(n.at))} ${esc(d.tz||"")}${T?` <span class="tiny ${stale?"warn":"muted"}" id="wxAge">· ${esc(TP.ago(T.ts))}</span>`:""}</b><span class="pill ${ev.level}">${{good:"Good",caution:"Caution",poor:"Poor"}[ev.level]}</span></div>
+    ${stale?`<div class="flag caution">Stale reading: ${esc(T.label)} last reported ${esc(TP.ago(T.ts))}. The station may be offline. Check conditions at the field before you spray.</div>`:""}
     <div class="wxnow">
-      <div><div class="k">Wind</div><div class="v">${fmt(n.windMph,0)} mph</div><div class="tiny muted">from ${compass(n.windDir)} (${fmt(n.windDir,0)}°)</div></div>
-      <div><div class="k">Gusts</div><div class="v">${fmt(n.gustMph,0)} mph</div></div>
-      <div><div class="k">Temp</div><div class="v">${fmt(n.tempF,0)}°F</div></div>
-      <div><div class="k">Humidity</div><div class="v">${fmt(n.rh,0)}%</div></div>
-      <div><div class="k">Rain (next 6 h)</div><div class="v">${fmt(Math.max(...d.hours.slice(0,7).map(x=>num(x.pop))),0)}%</div></div>
-      <div><div class="k">Inversion</div><div class="v" style="font-size:16px">${ev.inversion?"Possible":"Not indicated"}</div></div>
+      ${tile("Wind", fmt(n.windMph,0)+" mph", `from ${compass(n.windDir)} (${fmt(n.windDir,0)}°)`)}
+      ${tile("Gusts", fmt(n.gustMph,0)+" mph")}
+      ${tile("Temp", fmt(n.tempF,0)+"°F")}
+      ${tile("Humidity", fmt(n.rh,0)+"%")}
+      ${tile("Rain (next 6 h)", H.length ? fmt(Math.max(...H.slice(0,7).map(x=>num(x.pop))),0)+"%" : "—")}
+      <div><div class="k">Inversion</div><div class="v" style="font-size:16px">${ev.inversion?"Possible":H.length||!T?"Not indicated":"—"}</div></div>
+      ${T?tile("Delta T", n.deltaTC!=null?fmt(n.deltaTC,1)+"°C":"—", "2–8 is ideal")+tile("Lull", T.lullMph!=null?fmt(T.lullMph,0)+" mph":"—")+tile("Rain (last 1 h)", n.precipIn!=null?fmt(n.precipIn,2)+" in":"—"):""}
     </div>
     ${ev.flags.map(f=>`<div class="flag ${f.lvl}">${esc(f.msg)}</div>`).join("")}
     ${rs?`<div class="flag caution">Rain chance ${fmt(rs.pop,0)}% by ${esc(hhmm(rs.t))}. Check each product's rainfast interval on the label.</div>`:""}
-    ${!ev.flags.length&&!rs?`<div class="flag good">Within the general guidelines right now (3–10 mph wind, under 85°F, no rain soon).</div>`:""}
-    <h3>Next 12 hours</h3>
-    <div class="hrs"><table><tr><th>Time</th><th>Wind</th><th>Gust</th><th>Dir</th><th>Temp</th><th>RH</th><th>Rain</th><th></th></tr>
-    ${d.hours.slice(0,13).map(x=>{ const e = sprayFlags(x, {nearDusk: nearDusk(x.t, d.sun)}); return `<tr><td>${esc(hhmm(x.t))}</td><td><b>${fmt(x.windMph,0)}</b></td><td>${fmt(x.gustMph,0)}</td><td>${compass(x.windDir)}</td><td>${fmt(x.tempF,0)}°</td><td>${fmt(x.rh,0)}%</td><td>${fmt(x.pop,0)}%</td><td><span class="pill ${e.level}" title="${esc(e.flags.map(f=>f.msg).join(" "))}">${{good:"OK",caution:"!",poor:"✗"}[e.level]}</span></td></tr>`; }).join("")}
-    </table></div>
-    <p class="tiny muted" style="margin:8px 0 0">${esc(d.source)} model data for ${esc(d.place||"")} (${fmt(d.lat,3)}, ${fmt(d.lon,3)}), fetched ${age<1?"just now":fmt(age,0)+" min ago"}. Times are local to that spot (${esc(d.tz||"")}). It's a forecast grid, not a reading at your field, so check wind at the field before you spray. <b>These are general guidelines. The product label's wind, temperature, droplet-size, and inversion rules take precedence.</b></p>`;
-  } else if (!WXS.busy && !WXS.err) h += `<p class="muted small" style="margin:10px 0 0">Tap <b>Get local weather</b> for current wind, temperature, humidity, and the next 12 hours.</p>`;
+    ${!ev.flags.length&&!rs&&H.length?`<div class="flag good">Within the general guidelines right now (3–10 mph wind, under 85°F, no rain soon).</div>`:""}
+    <h3>Next 12 hours${T?` <span class="tiny muted" style="font-weight:600">· Open-Meteo forecast</span>`:""}</h3>
+    ${H.length?`<div class="hrs"><table><tr><th>Time</th><th>Wind</th><th>Gust</th><th>Dir</th><th>Temp</th><th>RH</th><th>Rain</th><th></th></tr>
+    ${H.slice(0,13).map(x=>{ const e = sprayFlags(x, {nearDusk: nearDusk(x.t, d.sun)}); return `<tr><td>${esc(hhmm(x.t))}</td><td><b>${fmt(x.windMph,0)}</b></td><td>${fmt(x.gustMph,0)}</td><td>${compass(x.windDir)}</td><td>${fmt(x.tempF,0)}°</td><td>${fmt(x.rh,0)}%</td><td>${fmt(x.pop,0)}%</td><td><span class="pill ${e.level}" title="${esc(e.flags.map(f=>f.msg).join(" "))}">${{good:"OK",caution:"!",poor:"✗"}[e.level]}</span></td></tr>`; }).join("")}
+    </table></div>`:`<p class="small muted">${esc(d.hoursErr||"No hourly outlook")}. Tap the button again to retry.</p>`}
+    <p class="tiny muted" style="margin:8px 0 0">${T
+      ? `Now: live reading from Tempest station ${esc(T.label)} (${fmt(d.lat,3)}, ${fmt(d.lon,3)}), reported ${esc(TP.ago(T.ts))}, fetched ${age<1?"just now":fmt(age,0)+" min ago"}. Hourly outlook and inversion hint: Open-Meteo model forecast for the station's location. Times are local to the station (${esc(d.tz||"")}).`
+      : `${esc(d.source)} model data for ${esc(d.place||"")} (${fmt(d.lat,3)}, ${fmt(d.lon,3)}), fetched ${age<1?"just now":fmt(age,0)+" min ago"}. Times are local to that spot (${esc(d.tz||"")}). It's a forecast grid, not a reading at your field, so check wind at the field before you spray.`}
+      <b>These are general guidelines. The product label's wind, temperature, droplet-size, and inversion rules take precedence.</b></p>`;
+  } else if (!WXS.busy && !WXS.err) h += `<p class="muted small" style="margin:10px 0 0">Tap <b>${tp?"Get station reading":"Get local weather"}</b> for current wind, temperature, humidity, and the next 12 hours.</p>`;
   el.innerHTML = h;
 }
+TM.renderWx = renderWx;
 
 /* ---------- v2.2 Field location: coordinate parsing, field map, saved fields ---------- */
 const GEO = TM.geo = {};
@@ -2680,14 +2715,214 @@ function openQuickAdd(){
 }
 TM.openQuickAdd = openQuickAdd;
 
+/* ---------- v2.5 WeatherFlow Tempest stations ----------
+   Storage: tm.tempest = { accounts:[{id,name,token,stations:[{id,name,lat,lon,tz,elev,devices}],added,checked}],
+                           prefs:{ [stationId]:{hidden,alias} }, def:stationId, sel:stationId, seen:{ [stationId]:lastObsEpoch } }
+   Tokens live only in this key, on this device. They are sent only to swd.weatherflow.com (as ?token=, the documented way),
+   never put in settings, logs, CSV, print or share text, and only go into a backup when the user ticks the box.
+   REST observations are always metric (°C, m/s, mm); the app converts to °F, mph, in. */
+const TPAPI = "https://swd.weatherflow.com/swd/rest";
+const TP = TM.TP = {
+  NEAR_MI: 10, STALE_MIN: 15,
+  st: Object.assign({accounts:[], prefs:{}, def:null, sel:null, seen:{}}, LS.get("tempest", {})),
+  obs: {},          // stationId -> latest parsed obs (this session), or {none:true}
+  err: {},          // stationId -> last error text
+  ui: { adding:false, busy:false, msg:"", lvl:"" },
+  save(){ LS.set("tempest", this.st); },
+  // every station across all accounts (first account wins if two tokens see the same station)
+  stations(all){ const out = [], seen = new Set();
+    this.st.accounts.forEach(a=>(a.stations||[]).forEach(s=>{ const k = String(s.id); if (seen.has(k)) return; seen.add(k);
+      const p = this.st.prefs[k]||{}; out.push(Object.assign({}, s, { acct:a.id, acctName:a.name, token:a.token, hidden:!!p.hidden, alias:p.alias||"", label:p.alias||s.name })); }));
+    return all ? out : out.filter(s=>!s.hidden); },
+  station(id){ return id==null ? null : this.stations(true).find(s=>String(s.id)===String(id)) || null; },
+  defStation(){ const E = this.stations(); return E.find(s=>String(s.id)===String(this.st.def)) || E[0] || null; },
+  weatherStation(){ const E = this.stations(); return E.find(s=>String(s.id)===String(this.st.sel)) || this.defStation(); },
+  connected(){ return this.stations().length > 0; },
+  pref(id){ const k = String(id); return this.st.prefs[k] = this.st.prefs[k] || {}; },
+  fixDefault(){ const E = this.stations(); if (!E.some(s=>String(s.id)===String(this.st.def))) this.st.def = E[0] ? E[0].id : null;
+    if (this.st.sel!=null && !E.some(s=>String(s.id)===String(this.st.sel))) this.st.sel = null; }
+};
+TP.miles = (a, b) => { const R = 3958.8, r = x => x*Math.PI/180, dLa = r(b.lat-a.lat), dLo = r(b.lon-a.lon);
+  const h = Math.sin(dLa/2)**2 + Math.cos(r(a.lat))*Math.cos(r(b.lat))*Math.sin(dLo/2)**2; return 2*R*Math.asin(Math.min(1, Math.sqrt(h))); };
+TP.nearest = (p, list) => { let best = null; (list||TP.stations()).forEach(s=>{ if (!GEO.valid(s.lat, s.lon)) return; const mi = TP.miles(p, s); if (!best || mi < best.mi) best = {st:s, mi}; }); return best; };
+TP.c2f = c => c==null||!isFinite(c) ? null : +(c*9/5+32).toFixed(1);
+TP.ms2mph = v => v==null||!isFinite(v) ? null : +(v*2.2369363).toFixed(1);
+TP.mm2in = v => v==null||!isFinite(v) ? null : +(v/25.4).toFixed(2);
+TP.ageMin = ts => (Date.now() - ts*1000)/60000;
+TP.ago = ts => { const m = TP.ageMin(ts); return m < 1 ? "just now" : m < 60 ? Math.round(m)+" min ago" : m < 48*60 ? Math.round(m/60)+" h ago" : Math.round(m/1440)+" d ago"; };
+TP.stale = o => !o || o.none || TP.ageMin(o.ts) > TP.STALE_MIN;
+// epoch -> "YYYY-MM-DDTHH:MM" in the station's time zone (so hhmm() shows station-local time)
+TP.isoLocal = (ts, tz) => { const d = new Date(ts*1000);
+  try { const p = Object.fromEntries(new Intl.DateTimeFormat("en-CA",{timeZone:tz||undefined, year:"numeric", month:"2-digit", day:"2-digit", hour:"2-digit", minute:"2-digit", hourCycle:"h23"}).formatToParts(d).map(x=>[x.type,x.value]));
+    return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}`; } catch(e){ const x = new Date(d - d.getTimezoneOffset()*60000); return x.toISOString().slice(0,16); } };
+TP.mask = t => "••••"+String(t||"").slice(-4);
+class TPError extends Error { constructor(msg, kind){ super(msg); this.kind = kind; } }
+// One GET to the Tempest REST API. Errors never include the URL (it carries the token).
+async function tpGet(path, token, ms){
+  const url = TPAPI+path+(path.includes("?")?"&":"?")+"token="+encodeURIComponent(token);
+  const ctl = new AbortController(), t = setTimeout(()=>ctl.abort(), ms||15000);
+  let r, d;
+  try { r = await fetch(url, {signal:ctl.signal, cache:"no-store", credentials:"omit", referrerPolicy:"no-referrer"});
+    d = await r.json().catch(()=>null); }
+  catch(e){ throw new TPError(navigator.onLine===false ? "No network connection" : e.name==="AbortError" ? "Tempest didn't answer in time" : "Couldn't reach Tempest (swd.weatherflow.com)", "net"); }
+  finally { clearTimeout(t); }
+  const code = r.status===200 && d && d.status && d.status.status_code ? d.status.status_code : r.status;
+  if (code===401 || code===403) throw new TPError("Tempest didn't accept this token (401). Check that you copied the whole token and that it hasn't been deleted at tempestwx.com", "auth");
+  if (code===404) throw new TPError("Tempest doesn't know this station (404)", "http");
+  if (code!==200 && code!==0) throw new TPError("Tempest returned an error (HTTP "+code+")", "http");
+  if (!d) throw new TPError("Tempest sent an unreadable reply", "http");
+  return d;
+}
+TP.parseStations = d => (d.stations || d.locations || []).map(s=>({ id:s.station_id, name:String(s.name||s.public_name||("Station "+s.station_id)),
+  lat:+s.latitude, lon:+s.longitude, tz:s.timezone||"", elev:s.station_meta&&s.station_meta.elevation,
+  devices:(s.devices||[]).filter(x=>x.device_type && x.device_type!=="HB").map(x=>({id:x.device_id, type:x.device_type, serial:x.serial_number||""})) }))
+  .filter(s=>s.id!=null);
+TP.parseObs = d => { const o = (d && d.obs || [])[0]; if (!o || o.timestamp==null) return null;
+  return { ts:+o.timestamp, tempF:TP.c2f(o.air_temperature), rh:o.relative_humidity==null?null:Math.round(o.relative_humidity),
+    windMph:TP.ms2mph(o.wind_avg), gustMph:TP.ms2mph(o.wind_gust), lullMph:TP.ms2mph(o.wind_lull), windDir:o.wind_direction==null?null:Math.round(o.wind_direction),
+    precipIn:TP.mm2in(o.precip_accum_last_1hr), deltaTC:o.delta_t==null?null:+(+o.delta_t).toFixed(1), tz:d.timezone||"" }; };
+TP.listStations = async token => TP.parseStations(await tpGet("/stations", token));
+TP.fetchObs = async st => {
+  try { const o = TP.parseObs(await tpGet("/observations/station/"+encodeURIComponent(st.id), st.token));
+    TP.obs[st.id] = o || {none:true}; delete TP.err[st.id];
+    if (o){ TP.st.seen = TP.st.seen||{}; TP.st.seen[st.id] = o.ts; TP.save(); }
+    return o; }
+  catch(e){ TP.err[st.id] = e.message; throw e; } };
+TP.refreshAll = async () => { await Promise.all(TP.stations(true).map(s=>TP.fetchObs(s).catch(()=>null))); renderTempest(); };
+
+/* Weather source: current conditions from the station, hourly outlook from Open-Meteo at the station's spot
+   (Open-Meteo also gives the 80 m temperature used for the inversion hint). If the station can't be read, the
+   whole reading falls back to Open-Meteo at the station's location and says why. */
+async function tpWeather(st){
+  let o = null, why = "";
+  try { o = await TP.fetchObs(st); if (!o) why = st.label+" sent no recent readings (offline?)"; }
+  catch(e){ why = e.kind==="auth" ? "Tempest token for "+st.acctName+" was rejected (401)" : e.message; }
+  const loc = {lat:st.lat, lon:st.lon, name:st.label+" (station location)"};
+  if (why){ const d = await WX.sources.openmeteo.fetch(loc); d.fallback = why; d.stationId = st.id; return d; }
+  let fc = null; try { fc = await WX.sources.openmeteo.fetch(loc); } catch(e){}
+  const tz = st.tz || o.tz;
+  return { place:st.label, tz: tz ? tzName(tz, "") : (fc&&fc.tz)||"", source:"Tempest", lat:st.lat, lon:st.lon,
+    tempest:{ id:st.id, label:st.label, acct:st.acctName, ts:o.ts, stale:TP.stale(o), lullMph:o.lullMph },
+    now:{ at:TP.isoLocal(o.ts, tz), tempF:o.tempF, rh:o.rh, windMph:o.windMph, gustMph:o.gustMph, windDir:o.windDir, precipIn:o.precipIn, deltaTC:o.deltaTC },
+    hours: fc ? fc.hours : [], sun: fc ? fc.sun : [], hoursErr: fc ? "" : "Couldn't get the Open-Meteo hourly outlook" };
+}
+TM.tpWeather = tpWeather;
+WX.register("tempest", { label:"WeatherFlow Tempest station(s)", ready:true, needsLocation:false, usable:()=>TP.connected(),
+  async fetch(){ const st = TP.weatherStation(); if (!st) throw new Error("No Tempest station is turned on"); return tpWeather(st); } });
+
+/* ---- Settings › Weather source › Tempest panel ---- */
+function tpStationRow(s){
+  const o = TP.obs[s.id], e = TP.err[s.id], seen = (TP.st.seen||{})[s.id], isDef = TP.defStation() && String(TP.defStation().id)===String(s.id);
+  const last = o && !o.none ? (TP.stale(o) ? `<span class="warn">last reading ${esc(TP.ago(o.ts))} (stale)</span>` : `last reading ${esc(TP.ago(o.ts))}`)
+    : o && o.none ? `<span class="warn">no recent readings (offline?)</span>` : e ? `<span class="warn">${esc(e)}</span>` : seen ? `last reading ${esc(TP.ago(seen))}` : "checking…";
+  return `<div class="res tpst${s.hidden?" off":""}" data-id="${esc(s.id)}">
+    <label class="chk" title="Use this station"><input type="checkbox" data-act="show" aria-label="Use ${esc(s.label)}" ${s.hidden?"":"checked"}></label>
+    <div style="flex:1;min-width:0"><div class="nm">${esc(s.label)}${isDef&&!s.hidden?` <span class="badge ok">Default</span>`:""}${s.hidden?` <span class="badge off">Hidden</span>`:""}</div>
+      <div class="tiny muted">${esc(s.acctName)} · ${last}</div>
+      <div class="tiny muted">${s.alias?`Tempest name: ${esc(s.name)} · `:""}${GEO.valid(s.lat,s.lon)?fmt(s.lat,3)+", "+fmt(s.lon,3):"no location"}</div></div>
+    <button class="iconbtn" data-act="def" title="Make default" aria-label="Make ${esc(s.label)} the default" ${s.hidden?"disabled":""}>${isDef&&!s.hidden?"★":"☆"}</button>
+    <button class="iconbtn" data-act="ren" title="Rename" aria-label="Rename ${esc(s.label)}">✎</button></div>`;
+}
+function renderTempest(){
+  const el = $("tpPanel"); if (!el) return;
+  const on = S.settings.wxSrc==="tempest"; el.hidden = !on; $("wxSrcNote").hidden = on;
+  if (!on) return;
+  const A = TP.st.accounts, all = TP.stations(true), showForm = !A.length || TP.ui.adding;
+  let h = "";
+  if (all.length){
+    h += `<div class="subhd" style="margin-top:4px">Stations <span class="tiny muted" style="font-weight:600">· ✓ use · ★ default</span></div><div id="tpStations">${all.map(tpStationRow).join("")}</div>
+      ${TP.connected()?"":`<div class="flag caution">All stations are hidden, so the app uses Open-Meteo. Tick a station to use it.</div>`}
+      <button class="btn alt sm" id="tpRefresh" style="margin:2px 0 10px">↻ Check readings</button>`;
+    h += `<div class="subhd">Tempest accounts</div>` + A.map(a=>`<div class="res" data-acct="${esc(a.id)}"><div style="flex:1;min-width:0"><div class="nm">${esc(a.name)}</div>
+      <div class="tiny muted">${(a.stations||[]).length} station${(a.stations||[]).length===1?"":"s"} · token ${esc(TP.mask(a.token))}</div></div>
+      <button class="btn sm danger" data-act="rm">Remove</button></div>`).join("");
+  }
+  if (showForm){
+    h += `<div class="tpform"${A.length?' style="margin-top:6px"':""}>${A.length?`<div class="subhd">Add another Tempest account</div>`:`<div class="subhd">Connect your Tempest account</div>`}
+      <div class="grid">
+        <div><label class="f" for="tpName">Account name (optional)</label><input id="tpName" type="text" autocomplete="off" placeholder="${A.length?"e.g. Dad's farm":"e.g. Home"}"></div>
+        <div><label class="f" for="tpTok">Personal access token</label>
+          <div class="inrow"><input id="tpTok" type="password" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Paste token" style="flex:1 1 auto;font-family:ui-monospace,monospace">
+          <button type="button" class="iconbtn" id="tpEye" aria-label="Show token" aria-pressed="false" title="Show / hide">👁</button></div></div>
+        <div class="grid ${A.length?"g2":""}"><button class="btn" id="tpGo">${TP.ui.busy?`<span class="spinner"></span> Connecting…`:"Connect"}</button>${A.length?`<button class="btn alt" id="tpCancel">Cancel</button>`:""}</div>
+      </div>
+      <p class="tiny muted" style="margin:8px 0 0">Create a token at <b>tempestwx.com</b> › <b>Settings</b> › <b>Data Authorizations</b> › <b>Create Token</b>, then paste it here. The token stays in this browser on this device and is sent only to swd.weatherflow.com. It is left out of backups unless you tick the box under Saved › Backup.</p></div>`;
+  } else h += `<button class="btn alt block" id="tpAdd" style="margin-top:4px">＋ Add another Tempest account</button>`;
+  h += `<div id="tpMsg" aria-live="polite">${TP.ui.msg?`<div class="flag ${TP.ui.lvl||"caution"}">${esc(TP.ui.msg)}</div>`:""}</div>`;
+  el.innerHTML = h;
+  // bindings
+  if ($("tpEye")) $("tpEye").onclick = ()=>{ const i = $("tpTok"), show = i.type==="password"; i.type = show ? "text" : "password"; $("tpEye").setAttribute("aria-pressed", show); $("tpEye").setAttribute("aria-label", show?"Hide token":"Show token"); $("tpEye").textContent = show ? "🙈" : "👁"; };
+  if ($("tpGo")) $("tpGo").onclick = tpConnect;
+  if ($("tpTok")) $("tpTok").addEventListener("keydown", e=>{ if (e.key==="Enter"){ e.preventDefault(); tpConnect(); } });
+  if ($("tpCancel")) $("tpCancel").onclick = ()=>{ TP.ui.adding = false; TP.ui.msg = ""; renderTempest(); };
+  if ($("tpAdd")) $("tpAdd").onclick = ()=>{ TP.ui.adding = true; TP.ui.msg = ""; renderTempest(); $("tpTok").focus(); };
+  if ($("tpRefresh")) $("tpRefresh").onclick = ()=>{ TP.err = {}; tpRelistAll(); };
+  el.querySelectorAll("[data-acct] [data-act=rm]").forEach(b=>b.onclick=()=>{ const a = TP.st.accounts.find(x=>x.id===b.closest("[data-acct]").dataset.acct); if (!a) return;
+    if (!confirm(`Remove the Tempest account "${a.name}" and its ${(a.stations||[]).length} station(s) from this device? The token is deleted here (it still works at tempestwx.com until you delete it there).`)) return;
+    TP.st.accounts = TP.st.accounts.filter(x=>x.id!==a.id);
+    const left = new Set(TP.stations(true).map(s=>String(s.id))); Object.keys(TP.st.prefs).forEach(k=>{ if (!left.has(k)) delete TP.st.prefs[k]; });
+    Object.keys(TP.st.seen||{}).forEach(k=>{ if (!left.has(k)) delete TP.st.seen[k]; });
+    TP.fixDefault(); TP.save(); TP.ui.msg = `Removed "${a.name}".`; TP.ui.lvl = "good"; renderTempest(); renderWx(); });
+  el.querySelectorAll(".tpst").forEach(row=>{ const id = row.dataset.id, s = TP.station(id);
+    row.querySelector("[data-act=show]").onchange = e=>{ TP.pref(id).hidden = !e.target.checked; TP.fixDefault(); TP.save(); renderTempest(); renderWx(); };
+    row.querySelector("[data-act=def]").onclick = ()=>{ TP.st.def = s.id; TP.save(); renderTempest(); renderWx(); toast(s.label+" is the default station"); };
+    row.querySelector("[data-act=ren]").onclick = ()=>{
+      openDlg("Rename station", `<div class="grid"><div><label class="f" for="tpAlias">Name shown in this app</label><input id="tpAlias" type="text" value="${esc(s.label)}" autocomplete="off"></div>
+        <p class="tiny muted" style="margin:0">Tempest name: ${esc(s.name)} (${esc(s.acctName)}). This only changes the name here, not in your Tempest account.</p>
+        <div class="grid g2"><button class="btn" id="tpAliasOk">Save</button><button class="btn alt" id="tpAliasReset">Use Tempest name</button></div></div>`);
+      const done = v => { const p = TP.pref(id); if (v && v!==s.name) p.alias = v; else delete p.alias; TP.save(); closeDlg(); renderTempest(); renderWx(); };
+      $("tpAliasOk").onclick = ()=>done($("tpAlias").value.trim()); $("tpAliasReset").onclick = ()=>done("");
+      $("tpAlias").select(); };
+  });
+}
+TM.renderTempest = renderTempest;
+async function tpConnect(){
+  const tok = ($("tpTok").value||"").trim(), name = ($("tpName").value||"").trim();
+  const say = (m, l) => { TP.ui.msg = m; TP.ui.lvl = l||"caution"; $("tpMsg").innerHTML = m ? `<div class="flag ${TP.ui.lvl}">${esc(m)}</div>` : ""; };
+  if (!tok) { say("Paste your personal access token first."); return $("tpTok").focus(); }
+  if (/\s/.test(tok) || tok.length < 8) return say("That doesn't look like a Tempest token. Copy the whole token (it looks like 1a2b3c4d-…).");
+  if (TP.st.accounts.some(a=>a.token===tok)) return say("That token is already connected.");
+  TP.ui.busy = true; $("tpGo").disabled = true; $("tpGo").innerHTML = `<span class="spinner"></span> Connecting…`; say("");
+  let list;
+  try { list = await TP.listStations(tok); }
+  catch(e){ TP.ui.busy = false; renderTempest(); $("tpTok").value = tok; $("tpName").value = name;
+    return say(e.kind==="auth" ? "Token not accepted (401). Check that you copied the whole token from tempestwx.com › Settings › Data Authorizations, and that it hasn't been deleted." : e.kind==="net" ? e.message+". Check your connection and try again." : e.message, e.kind==="auth"?"poor":"caution"); }
+  TP.ui.busy = false;
+  if (!list.length){ renderTempest(); $("tpTok").value = tok; $("tpName").value = name; return say("The token works, but that Tempest account has no stations. Add a station in the Tempest app first, or use a token from the account that owns it."); }
+  const dup = new Set(TP.stations(true).map(s=>String(s.id))), fresh = list.filter(s=>!dup.has(String(s.id)));
+  const a = { id:uid(), name: name || (TP.st.accounts.length ? "Tempest account "+(TP.st.accounts.length+1) : "My Tempest"), token:tok, stations:list, added:Date.now(), checked:Date.now() };
+  TP.st.accounts.push(a); TP.fixDefault(); TP.save(); TP.ui.adding = false;
+  TP.ui.msg = `Connected "${a.name}": ${list.length} station${list.length===1?"":"s"}${fresh.length<list.length?` (${list.length-fresh.length} already listed under another account)`:""}.`; TP.ui.lvl = "good";
+  renderTempest(); renderWx(); TP.refreshAll();
+}
+// re-list every account's stations (picks up new or renamed stations), then read each station
+async function tpRelistAll(){
+  const b = $("tpRefresh"); if (b){ b.disabled = true; b.innerHTML = `<span class="spinner"></span> Checking…`; }
+  const bad = [];
+  await Promise.all(TP.st.accounts.map(async a=>{ try { const L = await TP.listStations(a.token); if (L.length) a.stations = L; a.checked = Date.now(); a.err = ""; }
+    catch(e){ a.err = e.message; bad.push(a.name+": "+(e.kind==="auth"?"token rejected (401)":e.message)); } }));
+  TP.fixDefault(); TP.save();
+  TP.ui.msg = bad.length ? bad.join(" · ") : ""; TP.ui.lvl = "caution";
+  await TP.refreshAll();
+}
+TM.tpRelistAll = tpRelistAll;
+// Backup helpers: tokens only when asked for
+TP.backup = withTokens => { const o = { prefs:clone(TP.st.prefs||{}), def:TP.st.def, sel:TP.st.sel };
+  if (withTokens) o.accounts = clone(TP.st.accounts); return o; };
+TP.restore = b => { if (!b || typeof b!=="object") return 0; let n = 0;
+  Object.entries(b.prefs||{}).forEach(([k,v])=>{ if (!TP.st.prefs[k]) TP.st.prefs[k] = v; });
+  (b.accounts||[]).forEach(a=>{ if (a && a.token && !TP.st.accounts.some(x=>x.token===a.token)){ TP.st.accounts.push(a); n++; } });
+  if (TP.st.def==null && b.def!=null) TP.st.def = b.def; TP.fixDefault(); TP.save(); renderTempest(); return n; };
+
 /* ---------- Spray log ---------- */
 const LOGF = { q:"", gf:"", editing:null };
 const nowLocal = () => { const d = new Date(); d.setMinutes(d.getMinutes()-d.getTimezoneOffset()); return d.toISOString().slice(0,16); };
 function renderLogView(){
   $("v-wx").innerHTML = `
   <div class="card"><h2>Weather &amp; spray conditions</h2>
-    <div class="small" style="margin-bottom:8px">📍 <b id="wxLoc"></b> · <a href="#" id="wxChg">change</a></div>
-    <div class="grid g2"><button class="btn" id="wxGet">🌤 Get local weather</button><button class="btn alt" id="wxGeo">📍 My location</button></div>
+    <div class="small" style="margin-bottom:8px" id="wxLocRow">📍 <b id="wxLoc"></b> · <a href="#" id="wxChg">change</a></div>
+    <div id="wxTpRow" hidden style="margin-bottom:8px"><label class="f" for="wxStation">Tempest station</label><select id="wxStation"></select></div>
+    <div class="grid g2" id="wxBtns"><button class="btn" id="wxGet">🌤 Get local weather</button><button class="btn alt" id="wxGeo">📍 My location</button></div>
     <div id="wxLocBox" hidden style="margin-top:10px">
       <form id="wxLocForm" class="inrow"><input id="wxLocQ" type="search" placeholder="ZIP, town, or lat, lon" enterkeyhint="search"><button class="btn sm" type="submit">Find</button></form>
       <div id="wxGeoOut" style="margin-top:8px"></div>
@@ -2711,6 +2946,7 @@ function renderLogView(){
   $("wxGet").onclick = ()=>getWeather();
   $("wxLog").onclick = ()=>$("btnLogMix").onclick();
   $("wxGeo").onclick = ()=>geolocate();
+  $("wxStation").onchange = e=>{ TP.st.sel = e.target.value; TP.save(); getWeather(); };
   $("wxChg").onclick = e=>{ e.preventDefault(); const b = $("wxLocBox"); b.hidden = !b.hidden; if (!b.hidden) $("wxLocQ").focus(); };
   $("wxLocForm").onsubmit = e=>{ e.preventDefault(); geocode($("wxLocQ").value); };
   $("logQ").oninput = e=>{ LOGF.q = e.target.value; renderLog(); };
@@ -2773,6 +3009,7 @@ function renderLogForm(){
     <div class="grid g2">${inp("lgApp","Applicator",r.applicator)}${inp("lgLic","License / cert. no.",r.license)}</div>
     <div class="fert" style="margin-top:0"><div class="row" style="justify-content:space-between"><span class="subhd" style="margin:0">Weather at application</span><button class="btn sm" id="lgWx">🌤 Fill from local weather</button></div>
       <div class="grid g3" style="margin-top:8px">${inp("lgT","Temp (°F)",w.tempF,"number")}${inp("lgRh","Humidity (%)",w.rh,"number")}${inp("lgW","Wind (mph)",w.windMph,"number")}${inp("lgDir","Wind from",w.windDirTxt||compass(w.windDir),"text",'placeholder="e.g. NW"')}${inp("lgG","Gusts (mph)",w.gustMph,"number")}${inp("lgSky","Sky / other",w.sky,"text",'placeholder="clear, dew…"')}</div>
+      <div id="lgWxSt" hidden style="margin-top:8px"><label class="f" for="lgWxStSel">Tempest station</label><select id="lgWxStSel"></select></div>
       <div id="lgWxMsg" aria-live="polite"></div>
       <div id="lgWxFind" hidden style="margin-top:8px"><label class="f" for="lgWxQ">Town, ZIP, or lat, lon</label>
         <div class="inrow"><input id="lgWxQ" type="search" placeholder="e.g. Ames, IA or 50010" enterkeyhint="search" autocomplete="off"><button type="button" class="btn sm" id="lgWxQGo">Find</button></div>
@@ -2799,8 +3036,8 @@ function renderLogForm(){
   const wxBtn = $("lgWx"), wxIdle = wxBtn.innerHTML;
   const wxMsg = (txt, lvl) => { $("lgWxMsg").innerHTML = txt ? `<div class="flag ${lvl||"caution"}" style="margin-top:8px">${txt}</div>` : ""; };
   const wxBusy = txt => { wxBtn.disabled = !!txt; wxBtn.innerHTML = txt ? `<span class="spinner"></span> ${esc(txt)}` : wxIdle; if (txt) wxMsg(""); };
-  const applyWx = d => { const n = d.now;
-    r.wx = { tempF:n.tempF, rh:n.rh, windMph:n.windMph, windDir:n.windDir, windDirTxt:compass(n.windDir), gustMph:n.gustMph, sky:$("lgSky").value, at:n.at, tz:d.tz, place:d.place, lat:d.lat, lon:d.lon, source:d.source+" at "+hhmm(n.at)+" "+(d.tz||"")+" for "+(d.place||""), manual:false };
+  const applyWx = (d, extra) => { const n = d.now;
+    r.wx = Object.assign({ tempF:n.tempF, rh:n.rh, windMph:n.windMph, windDir:n.windDir, windDirTxt:compass(n.windDir), gustMph:n.gustMph, sky:$("lgSky").value, at:n.at, tz:d.tz, place:d.place, lat:d.lat, lon:d.lon, source:d.source+" at "+hhmm(n.at)+" "+(d.tz||"")+" for "+(d.place||""), manual:false }, extra||{});
     $("lgT").value = n.tempF; $("lgRh").value = n.rh; $("lgW").value = n.windMph; $("lgDir").value = compass(n.windDir); $("lgG").value = n.gustMph; $("lgWxSrc").textContent = r.wx.source;
     $("lgWxFind").hidden = true; };
   const wxFail = e => "Couldn't get weather"+(navigator.onLine===false?" (offline)":"")+(e&&e.message?": "+esc(e.message):"")+". Type the readings in, or try again.";
@@ -2818,9 +3055,48 @@ function renderLogForm(){
     const f = $("lgField").value.trim();
     return { lat:+(+lat).toFixed(5), lon:+(+lon).toFixed(5), name:(f ? f+" field pin" : "Field pin")+" ("+fmt(lat,3)+", "+fmt(lon,3)+")" }; };
   const showFind = why => { wxMsg(esc(why)+" Type a town, ZIP, or lat, lon below to get the weather here."); $("lgWxFind").hidden = false; $("lgWxQOut").innerHTML = ""; $("lgWxQ").focus(); };
+  /* v2.5 Tempest: the enabled station nearest the field pin (any account), else the default station.
+     Too far (> TP.NEAR_MI), stale (> TP.STALE_MIN) or unreadable -> Open-Meteo at the pin (or the station's spot) and say why.
+     The station picker under the button lets you pick a station yourself (then distance and staleness are only noted). */
+  const stSel = $("lgWxStSel");
+  const drawStations = (pickedId, used) => { const E = TP.stations(), P = pinLoc();
+    if (WX.active().id!=="tempest" || !E.length){ $("lgWxSt").hidden = true; return; }
+    const list = E.map(s=>({s, mi: P && GEO.valid(s.lat, s.lon) ? TP.miles(P, s) : null})).sort((a,b)=> a.mi==null||b.mi==null ? 0 : a.mi-b.mi);
+    stSel.innerHTML = `<option value="">Auto: ${used&&!pickedId ? esc(used.label)+(used.mi!=null?" · "+fmt(used.mi,1)+" mi":"")+(P?" (nearest)":" (default)") : P?"nearest to the field pin":"default station"}</option>` + list.map(x=>`<option value="${esc(x.s.id)}"${String(pickedId)===String(x.s.id)?" selected":""}>${esc(x.s.label)}${x.mi!=null?" · "+fmt(x.mi,1)+" mi":""}${E.length>1?" · "+esc(x.s.acctName):""}</option>`).join("");
+    $("lgWxSt").hidden = false; };
+  const tpFill = async pickedId => {
+    const P = pinLoc(), picked = pickedId ? TP.station(pickedId) : null;
+    let st = picked, mi = null, why = "", o = null;
+    if (!st){ if (P){ const n = TP.nearest(P); if (n){ st = n.st; mi = n.mi; } } if (!st) st = TP.defStation(); }
+    else if (P && GEO.valid(st.lat, st.lon)) mi = TP.miles(P, st);
+    if (!st) return false;
+    if (!picked && mi!=null && mi > TP.NEAR_MI) why = `The nearest Tempest station, ${st.label}, is ${fmt(mi,1)} mi from the field pin (more than ${TP.NEAR_MI} mi)`;
+    if (!why){ wxBusy("Reading "+st.label+"…");
+      try { o = await TP.fetchObs(st); if (!o) why = st.label+" sent no recent readings (offline?)"; }
+      catch(e){ why = st.label+": "+(e.kind==="auth"?"token for "+st.acctName+" was rejected (401)":e.message); }
+      wxBusy("");
+      if (!why && TP.stale(o) && !picked) why = st.label+" last reported "+TP.ago(o.ts)+" (stale)"; }
+    if (!why){ const tz = st.tz||o.tz, at = TP.isoLocal(o.ts, tz), d = { now:{ at, tempF:o.tempF, rh:o.rh, windMph:o.windMph, gustMph:o.gustMph, windDir:o.windDir }, tz: tz?tzName(tz,""):"", place:st.label, lat:st.lat, lon:st.lon, source:"Tempest" };
+      const src = "Tempest · "+st.label+(mi!=null?" ("+fmt(mi,1)+" mi)":P?"":" (default station)")+" · "+hhmm(at);
+      applyWx(d, { source:src, station:{ id:st.id, name:st.label, mi: mi==null?null:+mi.toFixed(2) }, obsTs:o.ts, deltaTC:o.deltaTC });
+      drawStations(pickedId, {label:st.label, mi});
+      if (TP.stale(o)) wxMsg(esc(st.label+" last reported "+TP.ago(o.ts)+", so this reading is stale. Check conditions at the field."));
+      else if (picked && mi!=null && mi > TP.NEAR_MI) wxMsg(esc(st.label+" is "+fmt(mi,1)+" mi from the field pin. Conditions at the field may differ."));
+      toast("Weather filled from "+st.label); return true; }
+    // fall back to Open-Meteo at the pin, or at the station's spot when there's no pin
+    const loc = P || { lat:st.lat, lon:st.lon, name:st.label+" (station location)" };
+    wxBusy("Getting weather…");
+    try { const d = await WX.sources.openmeteo.fetch(loc); d.fetched = new Date().toISOString(); applyWx(d); wxBusy(""); drawStations(pickedId);
+      wxMsg(esc(why)+". Used Open-Meteo "+(P?"at the field pin":"at the station's location")+" instead. You can pick a station above."); }
+    catch(e){ wxBusy(""); drawStations(pickedId); wxMsg(esc(why)+". "+wxFail(e)); }
+    return true;
+  };
+  stSel.onchange = ()=>tpFill(stSel.value || null);
+  drawStations(r.wx && r.wx.station ? r.wx.station.id : null);
   wxBtn.onclick = async ()=>{
     const src = WX.active();
-    if (!src.needsLocation){ wxBusy("Getting weather…"); const d = await getWeather(); wxBusy(""); return d ? applyWx(d) : wxMsg(esc(WXS.err||"No weather. Type the readings in.")); }
+    if (src.id==="tempest" && await tpFill(stSel.value || null)) return;
+    if (!src.needsLocation && src.id!=="tempest"){ wxBusy("Getting weather…"); const d = await getWeather(); wxBusy(""); return d ? applyWx(d) : wxMsg(esc(WXS.err||"No weather. Type the readings in.")); }
     // 1) the field pin: weather at the field, even when the Weather tab is set somewhere else
     const P = pinLoc();
     if (P){ const c = LOGF.wxCache, key = P.lat.toFixed(3)+","+P.lon.toFixed(3);
@@ -2828,7 +3104,7 @@ function renderLogForm(){
       return fillAt(P, true); }
     // 2) the Weather tab's location
     const L = S.settings.wxLoc;
-    if (L){ let d = WXS.data; const fresh = d && (Date.now()-Date.parse(d.fetched)) < 15*60000 && d.place===L.name;
+    if (L){ let d = WXS.data; const fresh = d && !d.tempest && (Date.now()-Date.parse(d.fetched)) < 15*60000 && d.place===L.name;
       if (!fresh){ wxBusy("Getting weather…"); d = await getWeather(); wxBusy(""); }
       return d ? applyWx(d) : wxMsg(esc(WXS.err||wxFail())); }
     // 3) device location, saved as the weather location
@@ -2967,7 +3243,9 @@ function init(){
   $("lkCrop").innerHTML = CROPS.map(([v,l])=>`<option value="${esc(v)}">${esc(l||v)}</option>`).join("");
   $("lkCrop").onchange = e=>{ $("lkCropTxt").hidden = e.target.value!=="*"; if (e.target.value==="*") $("lkCropTxt").focus(); };
   $("wxSrc").innerHTML = Object.values(WX.sources).map(s=>`<option value="${s.id}"${s.id===S.settings.wxSrc?" selected":""}${s.ready?"":" disabled"}>${esc(s.label)}</option>`).join("");
-  $("wxSrc").onchange = e=>{ S.settings.wxSrc = e.target.value; persist("settings"); };
+  $("wxSrc").onchange = e=>{ S.settings.wxSrc = e.target.value; persist("settings"); TP.ui.msg = ""; renderTempest(); renderWx();
+    if (e.target.value==="tempest" && TP.st.accounts.length) TP.refreshAll(); };
+  renderTempest(); if (S.settings.wxSrc==="tempest" && TP.st.accounts.length) TP.refreshAll();
   document.addEventListener("click", e=>{ const g = e.target.closest("[data-go]"); if (g){ e.preventDefault(); showTab(g.dataset.go); } });
   if (window.TM_PREVIEW) document.querySelector("header.top .title").insertAdjacentHTML("afterbegin", '<span class="pvw" style="margin:0 0 2px" title="Preview build: not installed, no offline cache">Preview</span>');
   $("btnLogMix").onclick = ()=>{ showTab("log"); LOGF.editing = blankLog(); renderLogForm(); setTimeout(()=>$("logFormCard").scrollIntoView({behavior:"smooth"}),60); };
