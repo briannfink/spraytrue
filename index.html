@@ -1053,7 +1053,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
    3. Storage (localStorage)
    4. UI: Mix, Order/Jar test, Lookup (EPA), Saved, Print
    ===================================================================== */
-const APP_VERSION = "2.2.0";
+const APP_VERSION = "2.3.0";
 const TM = window.TM = {};
 
 /* ---------- 1. Constants ---------- */
@@ -2158,6 +2158,29 @@ function geolocate(){
     $("wxLocBox").hidden = false; renderWx();
   }, {enableHighAccuracy:false, timeout:12000, maximumAge:600000});
 }
+// Open-Meteo place search (town or 5-digit US ZIP); shared by the Weather tab and the spray-record form
+async function placeSearch(q){
+  const zip = /^\d{5}$/.test(q);
+  const d = await getJSON(`${OMGEO}?name=${encodeURIComponent(q)}&count=6&language=en&format=json${zip?"&countryCode=US":""}`, 12000);
+  return d.results||[];
+}
+TM.placeSearch = placeSearch;
+// Weather for any spot without touching the Weather tab's own reading (used by the spray-record form for a field pin)
+async function weatherAt(loc){ const d = await WX.active().fetch(loc); d.fetched = new Date().toISOString(); return d; }
+// Set the Weather tab's location only when none is set yet (v2.3: the spray form can find one)
+function adoptWxLoc(loc, d){
+  if (S.settings.wxLoc) return false;
+  S.settings.wxLoc = loc; persist("settings");
+  if (d && d.now){ WXS.data = d; WXS.err = ""; LS.set("wxLast", d); }
+  renderWx(); return true;
+}
+// Device location as a promise; rejects with {code, message}
+function devicePosition(){
+  return new Promise((ok, bad)=>{
+    if (!navigator.geolocation) return bad({code:0, message:"This browser has no location access"});
+    navigator.geolocation.getCurrentPosition(ok, bad, {enableHighAccuracy:false, timeout:12000, maximumAge:600000});
+  });
+}
 async function geocode(q){
   q = (q||"").trim(); if (!q) return;
   const ll = /^\s*(-?\d+(?:\.\d+)?)\s*[, ]\s*(-?\d+(?:\.\d+)?)\s*$/.exec(q);
@@ -2166,8 +2189,7 @@ async function geocode(q){
   const out = $("wxGeoOut"); out.innerHTML = `<span class="spinner"></span>`;
   try {
     const zip = /^\d{5}$/.test(q);
-    const d = await getJSON(`${OMGEO}?name=${encodeURIComponent(q)}&count=6&language=en&format=json${zip?"&countryCode=US":""}`, 12000);
-    const R = d.results||[];
+    const R = await placeSearch(q);
     if (!R.length){ out.innerHTML = `<span class="warn">No place found. Try just the town name, a 5-digit ZIP, or lat, lon.</span>`; return; }
     out.innerHTML = R.map((r,i)=>`<div class="res"><button class="link" data-i="${i}"><div class="nm">${esc(r.name)}${r.admin1?", "+esc(r.admin1):""}</div><div class="tiny muted">${esc(r.country||"")} · ${fmt(r.latitude,3)}, ${fmt(r.longitude,3)}${zip?" · ZIP "+esc(q):""}</div></button></div>`).join("");
     out.querySelectorAll("[data-i]").forEach(b=>b.onclick=()=>{ const r = R[+b.dataset.i];
@@ -2334,10 +2356,12 @@ function makeMap(el, opts){
 TM.makeMap = makeMap;
 
 /* ---- saved fields (tm.fields) ---- */
-function upsertField(name, loc){
+// extra: optional {grower, farm} (v2.3); blank values never wipe what the field already remembers
+function upsertField(name, loc, extra){
   name = (name||"").trim(); if (!name || !loc || !GEO.valid(loc.lat, loc.lon)) return null;
   let f = S.fields.find(x=>x.name.toLowerCase()===name.toLowerCase());
   const rec = { name, lat:loc.lat, lon:loc.lon, boundary:loc.boundary&&loc.boundary.length>=3 ? loc.boundary : [], acres:loc.bAcres||"", updated:Date.now() };
+  ["grower","farm"].forEach(k=>{ const v = extra && String(extra[k]||"").trim(); if (v) rec[k] = v; });
   if (f) Object.assign(f, rec); else { f = Object.assign({id:uid()}, rec); S.fields.push(f); }
   S.fields.sort((a,b)=>a.name.localeCompare(b.name)); persist("fields"); return f;
 }
@@ -2352,7 +2376,7 @@ function locSummary(loc, print){
 function renderFields(){
   const el = $("fieldList"); if (!el) return;
   $("fieldCount").textContent = S.fields.length;
-  el.innerHTML = S.fields.length ? S.fields.map(f=>`<div class="res" data-id="${f.id}"><button class="link" data-act="open"><div class="nm">📍 ${esc(f.name)}</div><div class="tiny muted">${GEO.fmt(f.lat,f.lon)}${f.boundary&&f.boundary.length>=3?" · "+fmt(+f.acres||GEO.acres(f.boundary),1)+" ac mapped":""}</div></button><button class="iconbtn" data-act="menu" title="Options">⋯</button></div>`).join("")
+  el.innerHTML = S.fields.length ? S.fields.map(f=>`<div class="res" data-id="${f.id}"><button class="link" data-act="open"><div class="nm">📍 ${esc(f.name)}</div>${f.grower||f.farm?`<div class="tiny" style="font-weight:600">${esc([f.grower,f.farm].filter(Boolean).join(" › "))}</div>`:""}<div class="tiny muted">${GEO.fmt(f.lat,f.lon)}${f.boundary&&f.boundary.length>=3?" · "+fmt(+f.acres||GEO.acres(f.boundary),1)+" ac mapped":""}</div></button><button class="iconbtn" data-act="menu" title="Options">⋯</button></div>`).join("")
     : `<div class="empty small">No saved fields yet. Drop a pin when you log a spray and keep “Save as a field” checked.</div>`;
   el.querySelectorAll("[data-act]").forEach(b=>b.onclick=()=>{ const f = S.fields.find(x=>x.id===b.closest(".res").dataset.id); if (f) fieldDlg(f); });
 }
@@ -2366,11 +2390,13 @@ function miniMap(id, loc){
   return W;
 }
 function fieldDlg(f){
-  openDlg("📍 "+f.name, `<div class="fmap sm" id="fdMap"></div><table class="kv" style="margin-top:8px"><tr><th>Location</th><td>${locSummary({lat:f.lat, lon:f.lon, boundary:f.boundary, bAcres:f.acres})}</td></tr></table>
-    <div class="grid g2" style="margin-top:12px"><button class="btn" id="fdLog">📝 Log a spray here</button><button class="btn alt" id="fdRen">Rename</button><button class="btn danger" id="fdDel" style="grid-column:1/-1">Delete saved field</button></div>
+  openDlg("📍 "+f.name, `<div class="fmap sm" id="fdMap"></div><table class="kv" style="margin-top:8px">${f.grower?`<tr><th>Grower</th><td>${esc(f.grower)}</td></tr>`:""}${f.farm?`<tr><th>Farm</th><td>${esc(f.farm)}</td></tr>`:""}<tr><th>Location</th><td>${locSummary({lat:f.lat, lon:f.lon, boundary:f.boundary, bAcres:f.acres})}</td></tr></table>
+    <div class="grid g2" style="margin-top:12px"><button class="btn" id="fdLog">📝 Log a spray here</button><button class="btn alt" id="fdRen">Rename</button><button class="btn alt" id="fdGF" style="grid-column:1/-1">Grower / farm…</button><button class="btn danger" id="fdDel" style="grid-column:1/-1">Delete saved field</button></div>
     <p class="tiny muted" style="margin:8px 0 0">Deleting a saved field doesn't change spray records that used it.</p>`);
   miniMap("fdMap", {lat:f.lat, lon:f.lon, boundary:f.boundary});
-  $("fdLog").onclick = ()=>{ closeDlg(); const r = blankLog(); r.field = f.name; r.loc = {lat:f.lat, lon:f.lon, boundary:clone(f.boundary||[]), bAcres:f.acres||"", fieldId:f.id}; if (!r.acres && f.acres) r.acres = +(+f.acres).toFixed(2); LOGF.editing = r; renderLogForm(); $("logFormCard").scrollIntoView({behavior:"smooth"}); };
+  $("fdLog").onclick = ()=>{ closeDlg(); const r = blankLog(); r.field = f.name; if (f.grower || f.farm){ r.grower = f.grower||""; r.farm = f.farm||""; } r.loc = {lat:f.lat, lon:f.lon, boundary:clone(f.boundary||[]), bAcres:f.acres||"", fieldId:f.id}; if (!r.acres && f.acres) r.acres = +(+f.acres).toFixed(2); LOGF.editing = r; renderLogForm(); $("logFormCard").scrollIntoView({behavior:"smooth"}); };
+  $("fdGF").onclick = ()=>{ const g = prompt("Grower for “"+f.name+"”:", f.grower||""); if (g==null) return; const fa = prompt("Farm for “"+f.name+"”:", f.farm||""); if (fa==null) return;
+    f.grower = g.trim(); f.farm = fa.trim(); f.updated = Date.now(); persist("fields"); renderFields(); closeDlg(); fieldDlg(f); };
   $("fdRen").onclick = ()=>{ const n = prompt("Rename field:", f.name); if (n && n.trim()){ f.name = n.trim(); f.updated = Date.now(); persist("fields"); renderFields(); } closeDlg(); };
   $("fdDel").onclick = ()=>{ if (!confirm("Delete saved field “"+f.name+"”?")) return; S.fields = S.fields.filter(x=>x!==f); persist("fields"); closeDlg(); renderFields(); toast("Field deleted"); };
 }
@@ -2444,6 +2470,7 @@ function bindLocSection(r){
   if (pick) pick.onchange = ()=>{ const f = S.fields.find(x=>x.id===pick.value); if (!f) return;
     L.fieldId = f.id; L.boundary = clone(f.boundary||[]); L.bAcres = f.acres||"";
     $("lgField").value = f.name; if (W){ W.setBoundary(L.boundary); }
+    if ((f.grower || f.farm) && $("lgGrower")){ $("lgGrower").value = f.grower||""; $("lgFarm").value = f.farm||""; $("lgGrower").dispatchEvent(new Event("input")); }
     setLoc(f.lat, f.lon, true);
     if (!num($("lgAcres").value) && num(f.acres)){ $("lgAcres").value = +(+f.acres).toFixed(2); $("lgAcres").dispatchEvent(new Event("input")); }
     if (W) W.later(()=>W.fit(), 60); drawBnd(); toast("Loaded field “"+f.name+"”"); };
@@ -2635,7 +2662,7 @@ function openQuickAdd(){
 TM.openQuickAdd = openQuickAdd;
 
 /* ---------- Spray log ---------- */
-const LOGF = { q:"", editing:null };
+const LOGF = { q:"", gf:"", editing:null };
 const nowLocal = () => { const d = new Date(); d.setMinutes(d.getMinutes()-d.getTimezoneOffset()); return d.toISOString().slice(0,16); };
 function renderLogView(){
   $("v-wx").innerHTML = `
@@ -2654,7 +2681,8 @@ function renderLogView(){
   <button class="backbar" data-go="set">‹ Settings</button>
   <div class="card" id="logFormCard"></div>
   <div class="card"><h2 style="justify-content:space-between">Spray records <span class="badge" id="logCount">0</span></h2>
-    <input id="logQ" type="search" placeholder="Filter by field, crop, product, applicator…" value="${esc(LOGF.q)}">
+    <input id="logQ" type="search" placeholder="Filter by grower, farm, field, crop, product…" value="${esc(LOGF.q)}">
+    <select id="logGF" aria-label="Filter by grower and farm" style="margin-top:8px" hidden></select>
     <div class="grid g2" style="margin:10px 0"><button class="btn alt sm" id="logCsv">⬇ Export CSV</button><button class="btn alt sm" id="logPrintAll">🖨 Print records</button></div>
     <div id="logList"></div>
   </div>
@@ -2667,6 +2695,7 @@ function renderLogView(){
   $("wxChg").onclick = e=>{ e.preventDefault(); const b = $("wxLocBox"); b.hidden = !b.hidden; if (!b.hidden) $("wxLocQ").focus(); };
   $("wxLocForm").onsubmit = e=>{ e.preventDefault(); geocode($("wxLocQ").value); };
   $("logQ").oninput = e=>{ LOGF.q = e.target.value; renderLog(); };
+  $("logGF").onchange = e=>{ LOGF.gf = e.target.value; renderLog(); };
   $("logCsv").onclick = exportCsv;
   $("logPrintAll").onclick = ()=>printLog(filteredLog());
   renderWx(); renderLogForm(); renderLog(); renderFields();
@@ -2688,13 +2717,24 @@ function logProducts(mix, acres){
 TM.logProducts = logProducts;
 function blankLog(){
   const R = TM.calc(S.mix), ac = R.ok ? +R.acres.toFixed(2) : "";
-  const lp = logProducts(S.mix, ac);
-  return { id:null, dt:nowLocal(), field:S.mix.name||"", crop:"", acres:ac, pests:"", mixRef:"__cur", mixName:S.mix.name||"", products:lp.products, tanks:lp.tanks, carrier:lp.carrier,
+  const lp = logProducts(S.mix, ac), sf = fieldByName(S.mix.name), gfFromField = sf && (sf.grower || sf.farm);
+  return { id:null, dt:nowLocal(), grower: gfFromField ? sf.grower||"" : S.settings.lastGrower||"", farm: gfFromField ? sf.farm||"" : S.settings.lastFarm||"", field:S.mix.name||"", crop:"", acres:ac, pests:"", mixRef:"__cur", mixName:S.mix.name||"", products:lp.products, tanks:lp.tanks, carrier:lp.carrier,
     applicator:S.settings.lastApplicator||"", license:S.settings.lastLicense||"", wx:{}, notes:"", rinsate:"", loc:fieldLoc(S.mix.name) };
 }
 // a saved field with this exact name (e.g. the mix is named after the field) prefills the location
-function fieldLoc(name){ const f = name && S.fields.find(x=>x.name.toLowerCase()===String(name).trim().toLowerCase());
+function fieldByName(name){ return (name && S.fields.find(x=>x.name.toLowerCase()===String(name).trim().toLowerCase())) || null; }
+function fieldLoc(name){ const f = fieldByName(name);
   return f ? {lat:f.lat, lon:f.lon, boundary:clone(f.boundary||[]), bAcres:f.acres||"", fieldId:f.id} : null; }
+/* ---- v2.3 grower / farm (optional strings on log records and saved fields) ---- */
+const lc = s => String(s||"").trim().toLowerCase();
+function uniqSorted(a){ const m = new Map(); a.forEach(x=>{ x = String(x||"").trim(); if (x && !m.has(lc(x))) m.set(lc(x), x); }); return [...m.values()].sort((a,b)=>a.localeCompare(b)); }
+function growerNames(){ return uniqSorted([...S.log.map(r=>r.grower), ...S.fields.map(f=>f.grower)]); }
+// farms for this grower first (if the grower has any), otherwise every farm used before
+function farmNames(grower){ const all = [...S.log, ...S.fields].filter(x=>x && x.farm);
+  const mine = grower ? all.filter(x=>lc(x.grower)===lc(grower)) : [];
+  return uniqSorted((mine.length ? mine : all).map(x=>x.farm)); }
+TM.growerNames = growerNames; TM.farmNames = farmNames;
+const gfTxt = r => [r.grower, r.farm].map(x=>String(x||"").trim()).filter(Boolean).join(" › ");
 function renderLogForm(){
   const el = $("logFormCard"), r = LOGF.editing;
   if (!r){ closeLocSection(); el.innerHTML = `<button class="btn block" id="logNew">＋ New spray record</button>`; $("logNew").onclick = ()=>{ LOGF.editing = blankLog(); renderLogForm(); el.scrollIntoView({behavior:"smooth"}); }; return; }
@@ -2702,6 +2742,8 @@ function renderLogForm(){
   el.innerHTML = `<h2>${r.id?"Edit spray record":"New spray record"}</h2>
   <div class="grid">
     ${inp("lgDt","Date & time","" + (r.dt||""),"datetime-local")}
+    <div class="grid g2">${inp("lgGrower","Grower",r.grower,"text",'list="growerList" autocomplete="off" placeholder="e.g. Fink Farms"')}${inp("lgFarm","Farm",r.farm,"text",'list="farmList" autocomplete="off" placeholder="e.g. Home place"')}</div>
+    <datalist id="growerList">${growerNames().map(g=>`<option value="${esc(g)}">`).join("")}</datalist><datalist id="farmList"></datalist>
     <div class="grid g2">${inp("lgField","Field",r.field)}${inp("lgCrop","Crop",r.crop,"text",'list="cropList"')}</div>
     ${locSectionHtml(r)}
     <datalist id="cropList">${CROPS.filter(c=>c[0]&&c[0]!=="*").map(c=>`<option value="${esc(c[1]||c[0])}">`).join("")}</datalist>
@@ -2712,6 +2754,10 @@ function renderLogForm(){
     <div class="grid g2">${inp("lgApp","Applicator",r.applicator)}${inp("lgLic","License / cert. no.",r.license)}</div>
     <div class="fert" style="margin-top:0"><div class="row" style="justify-content:space-between"><span class="subhd" style="margin:0">Weather at application</span><button class="btn sm" id="lgWx">🌤 Fill from local weather</button></div>
       <div class="grid g3" style="margin-top:8px">${inp("lgT","Temp (°F)",w.tempF,"number")}${inp("lgRh","Humidity (%)",w.rh,"number")}${inp("lgW","Wind (mph)",w.windMph,"number")}${inp("lgDir","Wind from",w.windDirTxt||compass(w.windDir),"text",'placeholder="e.g. NW"')}${inp("lgG","Gusts (mph)",w.gustMph,"number")}${inp("lgSky","Sky / other",w.sky,"text",'placeholder="clear, dew…"')}</div>
+      <div id="lgWxMsg" aria-live="polite"></div>
+      <div id="lgWxFind" hidden style="margin-top:8px"><label class="f" for="lgWxQ">Town, ZIP, or lat, lon</label>
+        <div class="inrow"><input id="lgWxQ" type="search" placeholder="e.g. Ames, IA or 50010" enterkeyhint="search" autocomplete="off"><button type="button" class="btn sm" id="lgWxQGo">Find</button></div>
+        <div id="lgWxQOut" style="margin-top:6px"></div></div>
       <div class="tiny muted" id="lgWxSrc" style="margin-top:6px">${w.source?esc(w.source)+(w.manual?" · edited by hand":""):"Type readings in, or fill them from local weather."}</div></div>
     <div><label class="f" for="lgRin">Rinsate / cleanout</label><textarea id="lgRin" rows="2" placeholder="e.g. triple rinse, ammonia cleaner, rinsate sprayed on labeled site">${esc(r.rinsate)}</textarea></div>
     <div><label class="f" for="lgNotes">Notes</label><textarea id="lgNotes" rows="3" placeholder="nozzles, pressure, buffer zones, observations">${esc(r.notes)}</textarea></div>
@@ -2721,44 +2767,117 @@ function renderLogForm(){
   const remix = () => { const lp = logProducts(mixFor(r.mixRef), r.acres); r.products = lp.products; r.carrier = lp.carrier; r.mixName = r.mixRef ? (mixFor(r.mixRef)||{}).name||"" : ""; if (lp.tanks!=="" ) { r.tanks = lp.tanks; $("lgTanks").value = lp.tanks; } drawProds(); };
   drawProds();
   bindLocSection(r);
+  const drawFarms = () => { $("farmList").innerHTML = farmNames($("lgGrower").value).map(f=>`<option value="${esc(f)}">`).join(""); };
+  drawFarms(); $("lgGrower").addEventListener("input", drawFarms);
+  $("lgField").addEventListener("change", ()=>{ const sf = fieldByName($("lgField").value);
+    if (sf && !$("lgGrower").value.trim() && !$("lgFarm").value.trim()){ if (sf.grower) $("lgGrower").value = sf.grower; if (sf.farm) $("lgFarm").value = sf.farm; drawFarms(); } });
   $("lgField").addEventListener("change", ()=>{ const L = r.loc||{}; if (GEO.valid(L.lat, L.lon) || (L.boundary||[]).length) return; const f = fieldLoc($("lgField").value); if (f && $("lgFieldPick")){ $("lgFieldPick").value = f.fieldId; $("lgFieldPick").onchange(); } });
   $("lgMix").onchange = e=>{ r.mixRef = e.target.value; remix(); };
   $("lgAcres").oninput = e=>{ r.acres = e.target.value; remix(); };
   ["lgT","lgRh","lgW","lgDir","lgG"].forEach(id=>$(id).addEventListener("input", ()=>{ r.wx = r.wx||{}; r.wx.manual = true; $("lgWxSrc").textContent = (r.wx.source?r.wx.source+" · ":"")+"edited by hand"; }));
-  $("lgWx").onclick = async ()=>{
-    let d = WXS.data; const L = S.settings.wxLoc, fresh = d && (Date.now()-Date.parse(d.fetched)) < 15*60000 && (!WX.active().needsLocation || (L && d.place===L.name));
-    if (!fresh) d = await getWeather();
-    if (!d){ toast(S.settings.wxLoc ? "No weather; type the readings in" : "Set your location on the Weather tab first, or type the readings in"); return; }
-    const n = d.now; r.wx = { tempF:n.tempF, rh:n.rh, windMph:n.windMph, windDir:n.windDir, windDirTxt:compass(n.windDir), gustMph:n.gustMph, sky:$("lgSky").value, at:n.at, tz:d.tz, place:d.place, lat:d.lat, lon:d.lon, source:d.source+" at "+hhmm(n.at)+" "+(d.tz||"")+" for "+(d.place||""), manual:false };
+  /* Fill from local weather (v2.3): never sends you to the Weather tab.
+     1) field pin set -> weather at the pin; 2) Weather tab location set -> that; 3) device location; 4) inline town/ZIP search. */
+  const wxBtn = $("lgWx"), wxIdle = wxBtn.innerHTML;
+  const wxMsg = (txt, lvl) => { $("lgWxMsg").innerHTML = txt ? `<div class="flag ${lvl||"caution"}" style="margin-top:8px">${txt}</div>` : ""; };
+  const wxBusy = txt => { wxBtn.disabled = !!txt; wxBtn.innerHTML = txt ? `<span class="spinner"></span> ${esc(txt)}` : wxIdle; if (txt) wxMsg(""); };
+  const applyWx = d => { const n = d.now;
+    r.wx = { tempF:n.tempF, rh:n.rh, windMph:n.windMph, windDir:n.windDir, windDirTxt:compass(n.windDir), gustMph:n.gustMph, sky:$("lgSky").value, at:n.at, tz:d.tz, place:d.place, lat:d.lat, lon:d.lon, source:d.source+" at "+hhmm(n.at)+" "+(d.tz||"")+" for "+(d.place||""), manual:false };
     $("lgT").value = n.tempF; $("lgRh").value = n.rh; $("lgW").value = n.windMph; $("lgDir").value = compass(n.windDir); $("lgG").value = n.gustMph; $("lgWxSrc").textContent = r.wx.source;
+    $("lgWxFind").hidden = true; };
+  const wxFail = e => "Couldn't get weather"+(navigator.onLine===false?" (offline)":"")+(e&&e.message?": "+esc(e.message):"")+". Type the readings in, or try again.";
+  // fetch + fill for a spot; adopt = also make it the Weather tab's location if none is set
+  const fillAt = async (loc, adopt) => {
+    wxBusy("Getting weather…");
+    try { const d = await weatherAt(loc); LOGF.wxCache = {key:loc.lat.toFixed(3)+","+loc.lon.toFixed(3), d}; applyWx(d); wxBusy("");
+      const set = adopt && adoptWxLoc(loc, d);
+      toast("Weather filled for "+(loc.name||"this spot")+(set?" · saved as your weather location":"")); return d; }
+    catch(e){ wxBusy(""); if (adopt) adoptWxLoc(loc, null); wxMsg(wxFail(e)); return null; }
   };
+  const pinLoc = () => { const L = r.loc||{}; let lat = L.lat, lon = L.lon;
+    if (!GEO.valid(lat, lon)){ const p = GEO.parse($("lgCoord") ? $("lgCoord").value : ""); if (p){ lat = p.lat; lon = p.lon; } }
+    if (!GEO.valid(lat, lon)) return null;
+    const f = $("lgField").value.trim();
+    return { lat:+(+lat).toFixed(5), lon:+(+lon).toFixed(5), name:(f ? f+" field pin" : "Field pin")+" ("+fmt(lat,3)+", "+fmt(lon,3)+")" }; };
+  const showFind = why => { wxMsg(esc(why)+" Type a town, ZIP, or lat, lon below to get the weather here."); $("lgWxFind").hidden = false; $("lgWxQOut").innerHTML = ""; $("lgWxQ").focus(); };
+  wxBtn.onclick = async ()=>{
+    const src = WX.active();
+    if (!src.needsLocation){ wxBusy("Getting weather…"); const d = await getWeather(); wxBusy(""); return d ? applyWx(d) : wxMsg(esc(WXS.err||"No weather. Type the readings in.")); }
+    // 1) the field pin: weather at the field, even when the Weather tab is set somewhere else
+    const P = pinLoc();
+    if (P){ const c = LOGF.wxCache, key = P.lat.toFixed(3)+","+P.lon.toFixed(3);
+      if (c && c.key===key && Date.now()-Date.parse(c.d.fetched) < 15*60000) return applyWx(c.d);
+      return fillAt(P, true); }
+    // 2) the Weather tab's location
+    const L = S.settings.wxLoc;
+    if (L){ let d = WXS.data; const fresh = d && (Date.now()-Date.parse(d.fetched)) < 15*60000 && d.place===L.name;
+      if (!fresh){ wxBusy("Getting weather…"); d = await getWeather(); wxBusy(""); }
+      return d ? applyWx(d) : wxMsg(esc(WXS.err||wxFail())); }
+    // 3) device location, saved as the weather location
+    wxBusy("Finding your location…");
+    let pos;
+    try { pos = await devicePosition(); }
+    catch(err){ wxBusy("");
+      return showFind((err.code===1 ? "Location permission is blocked." : err.code===0 ? "This browser has no location access." : "Couldn't get your location.")+(location.protocol==="file:"?" (Browsers often block it for pages opened as a file.)":"")); }
+    const la = pos.coords.latitude, lo = pos.coords.longitude;
+    return fillAt({ lat:+la.toFixed(4), lon:+lo.toFixed(4), name:"My location ("+la.toFixed(3)+", "+lo.toFixed(3)+")" }, true);
+  };
+  // 4) inline place search (no trip to the Weather tab)
+  const findPlace = async () => {
+    const q = $("lgWxQ").value.trim(), out = $("lgWxQOut"); if (!q) return $("lgWxQ").focus();
+    const p = /^\d{5}$/.test(q) ? null : GEO.parse(q);
+    if (p) return fillAt({ lat:p.lat, lon:p.lon, name:fmt(p.lat,3)+", "+fmt(p.lon,3) }, true);
+    out.innerHTML = `<span class="spinner"></span> Searching…`;
+    try { const R = await placeSearch(q), zip = /^\d{5}$/.test(q);
+      if (!R.length){ out.innerHTML = `<span class="warn">No place found. Try just the town name, a 5-digit ZIP, or lat, lon.</span>`; return; }
+      out.innerHTML = R.map((x,i)=>`<div class="res"><button type="button" class="link" data-i="${i}"><div class="nm">${esc(x.name)}${x.admin1?", "+esc(x.admin1):""}</div><div class="tiny muted">${esc(x.country||"")} · ${fmt(x.latitude,3)}, ${fmt(x.longitude,3)}${zip?" · ZIP "+esc(q):""}</div></button></div>`).join("");
+      out.querySelectorAll("[data-i]").forEach(b=>b.onclick=()=>{ const x = R[+b.dataset.i]; out.innerHTML = "";
+        fillAt({ lat:x.latitude, lon:x.longitude, name:x.name+(x.admin1?", "+x.admin1:"")+(zip?" ("+q+")":"") }, true); });
+    } catch(e){ out.innerHTML = `<span class="warn">Place search failed${navigator.onLine===false?" (offline)":""}. Enter lat, lon instead, or type the readings in.</span>`; }
+  };
+  $("lgWxQGo").onclick = findPlace;
+  $("lgWxQ").addEventListener("keydown", e=>{ if (e.key==="Enter"){ e.preventDefault(); findPlace(); } });
   $("lgCancel").onclick = ()=>{ LOGF.editing = null; renderLogForm(); };
   $("lgSave").onclick = ()=>{
     const v = id => $(id).value.trim();
-    Object.assign(r, { dt:v("lgDt"), field:v("lgField"), crop:v("lgCrop"), acres:v("lgAcres"), tanks:v("lgTanks"), pests:v("lgPests"), applicator:v("lgApp"), license:v("lgLic"), rinsate:$("lgRin").value.trim(), notes:$("lgNotes").value.trim() });
+    Object.assign(r, { dt:v("lgDt"), grower:v("lgGrower"), farm:v("lgFarm"), field:v("lgField"), crop:v("lgCrop"), acres:v("lgAcres"), tanks:v("lgTanks"), pests:v("lgPests"), applicator:v("lgApp"), license:v("lgLic"), rinsate:$("lgRin").value.trim(), notes:$("lgNotes").value.trim() });
     r.wx = Object.assign(r.wx||{}, { tempF:v("lgT"), rh:v("lgRh"), windMph:v("lgW"), windDirTxt:v("lgDir"), gustMph:v("lgG"), sky:v("lgSky") });
     if (!r.dt){ toast("Enter the date and time"); return; }
     const le = readLocSection(r); if (le){ toast(le); $("lgCoord").focus(); return; }
     if (r.loc){ S.settings.lastFieldLoc = {lat:r.loc.lat, lon:r.loc.lon};
-      if (r.saveField && r.field){ const f = upsertField(r.field, r.loc); if (f) r.loc.fieldId = f.id; renderFields(); } }
+      if (r.saveField && r.field){ const f = upsertField(r.field, r.loc, {grower:r.grower, farm:r.farm}); if (f) r.loc.fieldId = f.id; renderFields(); } }
     delete r.saveField;
     const now = Date.now();
     if (r.id){ const i = S.log.findIndex(x=>x.id===r.id); r.updated = now; if (i>=0) S.log[i] = r; else S.log.push(r); }
     else { r.id = uid(); r.created = r.updated = now; S.log.push(r); }
-    S.settings.lastApplicator = r.applicator; S.settings.lastLicense = r.license; persist("settings");
+    S.settings.lastApplicator = r.applicator; S.settings.lastLicense = r.license; S.settings.lastGrower = r.grower; S.settings.lastFarm = r.farm; persist("settings");
     persist("log"); LOGF.editing = null; renderLogForm(); renderLog(); toast("Spray record saved");
   };
 }
+function gfMatch(r){ const g = LOGF.gf; if (!g) return true; const [k, gr, fa] = g.split("\u0001");
+  return lc(r.grower)===lc(gr) && (k==="g" || lc(r.farm)===lc(fa)); }
+function drawGfFilter(){
+  const el = $("logGF"); if (!el) return;
+  const pairs = new Map(); S.log.forEach(r=>{ const g = String(r.grower||"").trim(); if (!g) return; const k = lc(g); if (!pairs.has(k)) pairs.set(k, {g, farms:new Map()}); const f = String(r.farm||"").trim(); if (f && !pairs.get(k).farms.has(lc(f))) pairs.get(k).farms.set(lc(f), f); });
+  if (!pairs.size){ el.hidden = true; if (LOGF.gf){ LOGF.gf = ""; } return; }
+  const G = [...pairs.values()].sort((a,b)=>a.g.localeCompare(b.g));
+  const opts = [`<option value="">All growers &amp; farms</option>`]; let found = !LOGF.gf;
+  G.forEach(x=>{ const gv = "g\u0001"+x.g; found = found || gv===LOGF.gf;
+    opts.push(`<option value="${esc(gv)}"${gv===LOGF.gf?" selected":""}>${esc(x.g)} (all farms)</option>`);
+    [...x.farms.values()].sort((a,b)=>a.localeCompare(b)).forEach(f=>{ const fv = "f\u0001"+x.g+"\u0001"+f; found = found || fv===LOGF.gf; opts.push(`<option value="${esc(fv)}"${fv===LOGF.gf?" selected":""}>&nbsp;&nbsp;${esc(x.g)} › ${esc(f)}</option>`); }); });
+  if (!found) LOGF.gf = "";
+  el.innerHTML = opts.join(""); el.value = LOGF.gf; el.hidden = false;
+}
 function filteredLog(){
   const q = LOGF.q.toLowerCase().trim();
-  return S.log.slice().sort((a,b)=>(b.dt||"").localeCompare(a.dt||"")).filter(r=> !q || [r.field,r.crop,r.mixName,r.applicator,r.pests,r.notes,r.dt,...(r.products||[]).map(p=>p.name+" "+p.epa)].join(" ").toLowerCase().includes(q));
+  return S.log.slice().sort((a,b)=>(b.dt||"").localeCompare(a.dt||"")).filter(gfMatch).filter(r=> !q || [r.grower,r.farm,r.field,r.crop,r.mixName,r.applicator,r.pests,r.notes,r.dt,...(r.products||[]).map(p=>p.name+" "+p.epa)].join(" ").toLowerCase().includes(q));
 }
 const dtTxt = s => { if (!s) return ""; const d = new Date(s); return isFinite(d) ? d.toLocaleString("en-US",{month:"short",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit"}) : s; };
 function renderLog(){
   const el = $("logList"); if (!el) return;
+  drawGfFilter();
   const L = filteredLog(); $("logCount").textContent = S.log.length;
   el.innerHTML = L.length ? L.map(r=>`<div class="res" data-id="${r.id}"><button class="link" data-act="open"><div class="nm">${esc(r.field||"(no field)")}${r.crop?" · "+esc(r.crop):""}</div>
-    <div class="tiny muted">${esc(dtTxt(r.dt))} · ${r.acres?esc(r.acres)+" ac · ":""}${esc(r.mixName||"no mix")}${r.loc&&GEO.valid(r.loc.lat,r.loc.lon)?" · 📍":""}${r.wx&&r.wx.windMph!==""&&r.wx.windMph!=null?" · wind "+esc(r.wx.windMph)+" mph "+esc(r.wx.windDirTxt||""):""}</div></button>
+    ${gfTxt(r)?`<div class="tiny" style="font-weight:600">${esc(gfTxt(r))}</div>`:""}<div class="tiny muted">${esc(dtTxt(r.dt))} · ${r.acres?esc(r.acres)+" ac · ":""}${esc(r.mixName||"no mix")}${r.loc&&GEO.valid(r.loc.lat,r.loc.lon)?" · 📍":""}${r.wx&&r.wx.windMph!==""&&r.wx.windMph!=null?" · wind "+esc(r.wx.windMph)+" mph "+esc(r.wx.windDirTxt||""):""}</div></button>
     <button class="iconbtn" data-act="menu" title="Options">⋯</button></div>`).join("") : `<div class="empty">${S.log.length?"No records match the filter.":"No spray records yet."}</div>`;
   el.querySelectorAll("[data-act]").forEach(b=>b.onclick=()=>{
     const r = S.log.find(x=>x.id===b.closest(".res").dataset.id);
@@ -2774,7 +2893,7 @@ TM.renderLog = renderLog;
 function editLog(r){ LOGF.editing = clone(r); renderLogForm(); $("logFormCard").scrollIntoView({behavior:"smooth"}); }
 function recHtml(r, print){
   const w = r.wx||{}, L = r.loc, hasL = L && GEO.valid(L.lat, L.lon), sk = print && hasL && L.boundary && L.boundary.length>=3 ? GEO.svg(L.boundary, 120, L) : "";
-  return `<table class="kv"><tr><th>Date / time</th><td>${esc(dtTxt(r.dt))}</td></tr><tr><th>Field</th><td>${esc(r.field)}${r.crop?" · "+esc(r.crop):""}</td></tr>
+  return `<table class="kv"><tr><th>Date / time</th><td>${esc(dtTxt(r.dt))}</td></tr>${r.grower?`<tr><th>Grower</th><td>${esc(r.grower)}</td></tr>`:""}${r.farm?`<tr><th>Farm</th><td>${esc(r.farm)}</td></tr>`:""}<tr><th>Field</th><td>${esc(r.field)}${r.crop?" · "+esc(r.crop):""}</td></tr>
     ${hasL?`<tr><th>Field location</th><td>${locSummary(L, print)}${sk?`<div style="display:flex;gap:10px;align-items:flex-start;margin-top:6px"><div style="flex:0 0 auto">${sk}</div><span style="font-size:8.5pt;color:#444">Boundary sketch (red dot = pin).<br>Corners: ${L.boundary.map(p=>GEO.fmt(p[0],p[1])).join("; ")}</span></div>`:""}</td></tr>`:""}
     <tr><th>Acres / loads</th><td>${esc(r.acres)} ac · ${esc(r.tanks)} tank loads</td></tr>${r.pests?`<tr><th>Target pests</th><td>${esc(r.pests)}</td></tr>`:""}
     <tr><th>Mix</th><td>${esc(r.mixName||"—")}<br><span class="small muted">${esc(r.carrier||"")}</span></td></tr>
@@ -2793,23 +2912,23 @@ function printLog(recs){
   recs = recs || filteredLog();
   if (!recs.length) return toast("No records to print");
   $("printSheet").innerHTML = `<h1>Pesticide application record${recs.length>1?"s":""}</h1><div class="ps-meta">Printed ${new Date().toLocaleString()} · TankMix Pro v${APP_VERSION} · ${recs.length} record${recs.length===1?"":"s"}</div>` +
-    recs.map(r=>`<h3 style="margin:12pt 0 2pt">${esc(dtTxt(r.dt))} · ${esc(r.field||"")}</h3>`+recHtml(r, true).replace('class="kv"','')).join("") +
+    recs.map(r=>`<h3 style="margin:12pt 0 2pt">${esc(dtTxt(r.dt))} · ${esc([gfTxt(r), r.field].filter(Boolean).join(" › "))}</h3>`+recHtml(r, true).replace('class="kv"','')).join("") +
     `<p style="font-size:10pt;margin-top:12pt">Applicator signature: ______________________________ Date: ____________</p>`;
   const t = recs.length===1 ? "Spray record · "+(recs[0].field||dtTxt(recs[0].dt)) : "Spray records ("+recs.length+")";
   openPrintView("log", t, recs.map(r=>recTxt(r)).join("\n\n"));
 }
 function recTxt(r){ const w = r.wx||{}, L = r.loc, hasL = L && GEO.valid(L.lat, L.lon);
-  return [dtTxt(r.dt)+" · "+(r.field||"")+(r.crop?" · "+r.crop:""), hasL ? "Location: "+GEO.fmt(L.lat, L.lon)+" ("+GEO.dms(L.lat, L.lon)+") "+GEO.mapsUrl(L.lat, L.lon)+(L.boundary&&L.boundary.length>=3?" · boundary "+fmt(+L.bAcres||GEO.acres(L.boundary),1)+" ac":"") : "", (r.acres?r.acres+" ac · ":"")+(r.tanks?r.tanks+" tank loads":""), r.pests?"Pests: "+r.pests:"", "Mix: "+(r.mixName||"—")+(r.carrier?" ("+r.carrier+")":""),
+  return [dtTxt(r.dt)+" · "+(r.field||"")+(r.crop?" · "+r.crop:""), r.grower||r.farm ? [r.grower?"Grower: "+r.grower:"", r.farm?"Farm: "+r.farm:""].filter(Boolean).join(" · ") : "", hasL ? "Location: "+GEO.fmt(L.lat, L.lon)+" ("+GEO.dms(L.lat, L.lon)+") "+GEO.mapsUrl(L.lat, L.lon)+(L.boundary&&L.boundary.length>=3?" · boundary "+fmt(+L.bAcres||GEO.acres(L.boundary),1)+" ac":"") : "", (r.acres?r.acres+" ac · ":"")+(r.tanks?r.tanks+" tank loads":""), r.pests?"Pests: "+r.pests:"", "Mix: "+(r.mixName||"—")+(r.carrier?" ("+r.carrier+")":""),
     ...(r.products||[]).map(p=>"  - "+p.name+(p.epa?" (EPA "+p.epa+")":"")+": "+p.rate+(p.total?" · total "+p.total:"")),
     "Weather: "+[w.tempF?w.tempF+"°F":"", w.rh?w.rh+"% RH":"", w.windMph?"wind "+w.windMph+" mph "+(w.windDirTxt||""):"", w.gustMph?"gusts "+w.gustMph+" mph":"", w.sky||""].filter(Boolean).join(" · "),
     "Applicator: "+(r.applicator||"")+(r.license?" #"+r.license:""), r.rinsate?"Rinsate: "+r.rinsate:"", r.notes?"Notes: "+r.notes:""].filter(Boolean).join("\n"); }
 TM.printLog = printLog;
 function csvCell(v){ v = v==null ? "" : String(v); return /[",\n\r]/.test(v) ? '"'+v.replace(/"/g,'""')+'"' : v; }
 function logCsv(recs){
-  const head = ["Date/time","Field","Crop","Latitude","Longitude","Map link","Mapped boundary acres","Boundary corners (lat lon; ...)","Acres","Tank loads","Target pests","Mix","Carrier","Products (rate; total)","EPA reg nos","Temp F","RH %","Wind mph","Wind from","Gust mph","Sky","Weather source","Applicator","License","Rinsate/cleanout","Notes"];
+  const head = ["Date/time","Grower","Farm","Field","Crop","Latitude","Longitude","Map link","Mapped boundary acres","Boundary corners (lat lon; ...)","Acres","Tank loads","Target pests","Mix","Carrier","Products (rate; total)","EPA reg nos","Temp F","RH %","Wind mph","Wind from","Gust mph","Sky","Weather source","Applicator","License","Rinsate/cleanout","Notes"];
   const rows = recs.map(r=>{ const w = r.wx||{}, P = r.products||[];
     const L = r.loc && GEO.valid(r.loc.lat, r.loc.lon) ? r.loc : null, B = L && L.boundary && L.boundary.length>=3 ? L.boundary : null;
-    return [r.dt, r.field, r.crop, L?L.lat:"", L?L.lon:"", L?GEO.mapsUrl(L.lat, L.lon):"", B?+(+L.bAcres||GEO.acres(B)).toFixed(2):"", B?B.map(p=>p[0]+" "+p[1]).join("; "):"", r.acres, r.tanks, r.pests, r.mixName, r.carrier, P.map(p=>p.name+" ("+p.rate+(p.total?"; "+p.total:"")+")").join(" | "), P.map(p=>p.epa).filter(Boolean).join(" | "),
+    return [r.dt, r.grower||"", r.farm||"", r.field, r.crop, L?L.lat:"", L?L.lon:"", L?GEO.mapsUrl(L.lat, L.lon):"", B?+(+L.bAcres||GEO.acres(B)).toFixed(2):"", B?B.map(p=>p[0]+" "+p[1]).join("; "):"", r.acres, r.tanks, r.pests, r.mixName, r.carrier, P.map(p=>p.name+" ("+p.rate+(p.total?"; "+p.total:"")+")").join(" | "), P.map(p=>p.epa).filter(Boolean).join(" | "),
       w.tempF, w.rh, w.windMph, w.windDirTxt||compass(w.windDir), w.gustMph, w.sky, w.source ? w.source+(w.manual?" (edited by hand)":"") : (w.tempF||w.windMph ? "Entered by hand" : ""), r.applicator, r.license, r.rinsate, r.notes]; });
   return [head, ...rows].map(r=>r.map(csvCell).join(",")).join("\r\n");
 }
