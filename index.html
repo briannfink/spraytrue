@@ -95,6 +95,12 @@ ol.steps .st{font-weight:800}
 ol.steps .pl{margin:6px 0 0;padding:0;list-style:none}
 ol.steps .pl li{padding:6px 10px;background:var(--chip);border-radius:8px;margin-top:4px;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
 ol.steps .pl b{font-size:17px}
+ol.steps .camt{margin-top:4px;font-weight:650}
+ol.steps .pl.car li{border-left:4px solid var(--accent)}
+.ctab{width:100%;border-collapse:collapse;margin-top:8px;font-size:14px}
+.ctab th,.ctab td{padding:5px 6px;text-align:right;border-bottom:1px solid var(--line)}
+.ctab th:first-child,.ctab td:first-child{text-align:left}
+.ctab th{font-size:12px;color:var(--muted);text-transform:uppercase}
 .res{border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-bottom:8px;display:flex;gap:10px;align-items:center;justify-content:space-between;background:var(--card)}
 .res button.link{all:unset;cursor:pointer;flex:1;min-height:44px}
 .res .nm{font-weight:750}
@@ -931,6 +937,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
     <p class="tiny muted" style="margin:10px 0 0">Quick add lists My products (<span class="tag epa">EPA</span> and <span class="tag cu">Custom</span>) and generic adjuvants. Use <b>Lookup</b> to pull a product from EPA with its formulation prefilled. Always use the rate on the product label.</p>
   </div>
 
+  <div class="card" id="carrierCard" aria-live="polite"></div>
   <div class="card" id="costCard"></div>
   <button class="btn alt block" id="btnLogMix" style="margin-bottom:12px">📝 Log this spray</button>
 </section>
@@ -1062,7 +1069,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
    3. Storage (localStorage)
    4. UI: Mix, Order/Jar test, Lookup (EPA), Saved, Print
    ===================================================================== */
-const APP_VERSION = "2.5.0";
+const APP_VERSION = "2.6.0";
 const TM = window.TM = {};
 
 /* ---------- 1. Constants ---------- */
@@ -1175,10 +1182,27 @@ TM.calc = function(mix){
     R.products.push(o);
   });
   R.prodGalA = prodGalA;
+  // v2.6 carrier amounts. Carrier per load = load volume - volume of every product in that load.
+  // Liquids count at their volume. Dry products count only when a density (bulk density, lb/gal) is entered,
+  // as an estimate (oz ÷ 16 ÷ lb/gal); without one their volume is treated as negligible and listed in dryUnknown.
+  let dryGalA = 0; const dryUnknown = [], dryEst = [];
+  (mix.products||[]).forEach((p,i)=>{
+    const o = R.products[i]; if (o.kind!=="wt" || !(o.perAcre>0)) return;
+    const d = num(p.density);
+    if (d>0){ o.galA = o.perAcre/16/d; dryGalA += o.galA; dryEst.push(p.name||"(unnamed)"); }
+    else dryUnknown.push(p.name||"(unnamed)");
+  });
+  const prodVolA = prodGalA + dryGalA, carrA = Math.max(0, gpa - prodVolA);
+  R.prodVolA = prodVolA;
+  R.carrierAmt = { galA:carrA, liqGalA:prodGalA, dryGalA, dryEst, dryUnknown,
+    perFull:carrA*R.acresPerTank, perPartial:carrA*R.partialAcres, total:carrA*acres,
+    prodFull:prodVolA*R.acresPerTank, prodPartial:prodVolA*R.partialAcres,
+    over: ok && prodVolA > gpa + 1e-9, overFull: Math.max(0, prodVolA-gpa)*R.acresPerTank,
+    parts:[{key:"water", label:"Water", galA:carrA, perFull:carrA*R.acresPerTank, perPartial:carrA*R.partialAcres, total:carrA*acres}] };
   const F = fertOf(mix);
   if (F.type!=="water"){
     const share = Math.min(100, Math.max(0, num(F.share)))/100, dens = num(F.density);
-    const fillA = Math.max(0, gpa - prodGalA);          // carrier needed per acre after the products
+    const fillA = carrA;          // carrier needed per acre after the products (liquids + dry with a known density)
     const galA = fillA*share, waterA = fillA - galA, lbA = galA*dens;
     const fe = { type:F.type, share, density:dens, galA, waterA, lbA,
       perFull:galA*R.acresPerTank, waterFull:waterA*R.acresPerTank, perPartial:galA*R.partialAcres, waterPartial:waterA*R.partialAcres,
@@ -1191,6 +1215,11 @@ TM.calc = function(mix){
       if (fe.cpa!=null){ fe.cost = fe.cpa*acres; R.costPerAcre += fe.cpa; R.totalCost += fe.cost; }
     }
     R.fert = fe;
+    // carrier split into its components: fertilizer + any water (water first in the list since it goes in first)
+    const fl = (CARRIERS[F.type]||CARRIERS.custom).label;
+    R.carrierAmt.parts = [
+      {key:"water", label:"Water", galA:waterA, perFull:fe.waterFull, perPartial:fe.waterPartial, total:fe.waterTotal},
+      {key:"fert", label:fl, galA, perFull:fe.perFull, perPartial:fe.perPartial, total:fe.total}].filter(x=>x.galA>1e-9);
   }
   return R;
 };
@@ -1221,6 +1250,9 @@ function showAmt(base, kind, metric, enteredUnit){
   return {main, sub};
 }
 TM.showAmt = showAmt;
+// v2.6 carrier volumes: always to 0.1 gal (or 0.1 L)
+function showVol1(g, metric){ return metric ? fmt(g*GAL_L,1)+" L" : fmt(g,1)+" gal"; }
+TM.showVol1 = showVol1;
 function showVolGal(g, metric){ return metric ? fmt(g*GAL_L, g*GAL_L>=100?0:1)+" L" : fmt(g, g>=100?0:1)+" gal"; }
 function showArea(ac, mix, metric){
   const u = mix.area.u;
@@ -1326,7 +1358,8 @@ function renderStats(R){
     <div class="stat"><div class="k">Full tanks</div><div class="v">${R.fullTanks}</div><div class="s">${loads} load${loads===1?"":"s"} total · ${fmt(R.tanks,2)} tanks</div></div>
     <div class="stat"><div class="k">Partial last tank</div><div class="v">${R.partialGal>0?showVolGal(R.partialGal,m):"None"}</div><div class="s">${R.partialGal>0?"covers "+showArea(R.partialAcres,S.mix,m):"field ends on a full tank"}</div></div>
     <div class="stat"><div class="k">Total spray</div><div class="v">${showVolGal(R.totalGal,m)}</div><div class="s">${showArea(R.acres,S.mix,m)} @ ${showCarrier(R,S.mix,m)}</div></div>
-  </div>`;
+  </div>
+  <div class="small${R.carrierAmt.over?" warn":""}" id="tankCarrierLine" style="margin-top:8px">${R.carrierAmt.over?"⚠ Products exceed the tank volume; no room for carrier.":`Carrier to add: <b>${showVol1(R.carrierAmt.perFull,m)}</b> per full tank${R.partialGal>0?` · <b>${showVol1(R.carrierAmt.perPartial,m)}</b> partial`:""} · ${showVol1(R.carrierAmt.total,m)} total <span class="muted">(details under Products)</span>`}</div>`;
 }
 function productCard(p, i){
   const formOpts = FORMS.map(([k,l])=>`<option value="${k}"${k===p.form?" selected":""}>${esc(l)}</option>`).join("");
@@ -1352,7 +1385,7 @@ function productCard(p, i){
           <select data-f="priceUnit" aria-label="Price unit">${opts(PRICE_UNITS,p.priceUnit,u=>"/"+u)}</select></div></div>
       </div>
     </div>
-    ${(p.price && kindOf(p.priceUnit)!==kindOf(p.unit)) || num(p.density)>0 ? `<div style="margin-top:8px"><label class="f">Density (lb/gal) <span class="tiny">converts liquid ↔ dry for pricing; from the label or SDS</span></label><input data-f="density" type="number" inputmode="decimal" step="any" min="0" value="${esc(p.density||"")}" placeholder="e.g. 9.5" aria-label="Density"></div>`:""}
+    ${(p.price && kindOf(p.priceUnit)!==kindOf(p.unit)) || num(p.density)>0 || kindOf(p.unit)==="wt" ? `<div style="margin-top:8px"><label class="f">${kindOf(p.unit)==="wt"?"Bulk density":"Density"} (lb/gal) <span class="tiny">${kindOf(p.unit)==="wt"?"optional: lets the carrier amount subtract this dry product; also converts dry ↔ liquid for pricing":"converts liquid ↔ dry for pricing; from the label or SDS"}</span></label><input data-f="density" type="number" inputmode="decimal" step="any" min="0" value="${esc(p.density||"")}" placeholder="${kindOf(p.unit)==="wt"?"e.g. 8.3":"e.g. 9.5"}" aria-label="Density"></div>`:""}
     <div class="out" id="out-${p.id}"></div>
     <div class="costline" id="cost-${p.id}"></div>
   </div>`;
@@ -1372,6 +1405,39 @@ function renderOutputs(R){
     c.innerHTML = o.costErr ? `<span class="warn">⚠ ${esc(o.costErr)}</span>` : o.cpa!=null ? `Cost: <b>${money(m?o.cpa*AC_HA:o.cpa)}/${m?"ha":"A"}</b> · job <b>${money(o.cost)}</b>${o.viaDensity?' <span class="tiny muted">(via density '+esc(p.density)+' lb/gal)</span>':""}` : "";
   });
 }
+/* ---------- v2.6 carrier to add per load ---------- */
+// round gallons to the 0.1 shown in the current units, so start + top-off add up to the shown carrier
+const r1 = (g, m) => m ? Math.round(g*GAL_L*10)/10/GAL_L : Math.round(g*10)/10;
+// component amounts for one load (perFull / perPartial / total) rounded so they add up to the rounded carrier total
+function cParts(R, key, m){
+  const P = R.carrierAmt.parts, v = P.map(x=>r1(x[key], m));
+  if (P.length>1) v[v.length-1] = Math.max(0, r1(r1(R.carrierAmt[key], m) - v.slice(0,-1).reduce((a,b)=>a+b,0), m));
+  return v;
+}
+function carrierNotes(R, m){
+  const C = R.carrierAmt, L = [];
+  if (C.over) L.push(`<span class="warn">⚠ Products (${showVol1(C.prodFull,m)} per full tank) exceed the tank volume by ${showVol1(C.overFull,m)}. Check rates, carrier rate and tank size; there is no room for carrier.</span>`);
+  if (!C.over && (C.liqGalA>0 || C.dryGalA>0)) L.push(`Products take ${showVol1(C.prodFull,m)} per full tank${R.partialGal>0?" ("+showVol1(C.prodPartial,m)+" partial)":""}${C.dryGalA>0?", including ≈"+showVol1(C.dryGalA*R.acresPerTank,m)+" for dry "+esc(C.dryEst.join(", "))+" (from bulk density)":""}; the carrier fills the rest.`);
+  if (C.dryUnknown.length) L.push(`Dry products not subtracted: ${esc(C.dryUnknown.join(", "))} (no density entered, so treated as negligible).`);
+  return L;
+}
+TM.carrierNotes = R => carrierNotes(R, isMetric());
+function renderCarrier(R){
+  const m = isMetric(), el = $("carrierCard"); if (!el) return;
+  if (!R.ok){ el.innerHTML = `<h2>Carrier to add</h2><p class="muted small" style="margin:0">Fill in tank, carrier, and field size.</p>`; return; }
+  const C = R.carrierAmt, two = C.parts.length>1;
+  const cell = (k, g, s) => `<div><div class="k">${k}</div><div class="v">${g==null?"—":showVol1(g,m)}</div><div class="s">${s}</div></div>`;
+  const loads = R.fullTanks + (R.partialGal>0?1:0);
+  const head = `<div class="out" id="carrierOut">
+      ${cell("Per full tank", C.perFull, "to make "+showVol1(R.tank,m))}
+      ${R.partialGal>0 ? cell("Partial tank", C.perPartial, "to make "+showVol1(R.partialGal,m)) : cell("Partial tank", null, "none")}
+      ${cell("Total job", C.total, loads+" load"+(loads===1?"":"s"))}</div>`;
+  const parts = two ? `<table class="ctab" id="carrierParts"><tr><th></th><th>Full tank</th><th>Partial</th><th>Total</th></tr>${(()=>{ const f = cParts(R,"perFull",m), pp = cParts(R,"perPartial",m), t = cParts(R,"total",m);
+      return C.parts.map((x,i)=>`<tr><td>${esc(x.label)}</td><td><b>${showVol1(f[i],m)}</b></td><td>${R.partialGal>0?showVol1(pp[i],m):"—"}</td><td>${showVol1(t[i],m)}</td></tr>`).join(""); })()}</table>` : "";
+  const notes = carrierNotes(R, m);
+  el.innerHTML = `<h2>Carrier to add <span class="badge">${esc(two ? C.parts.map(x=>x.label.replace(/ \(.*\)$/,"")).join(" + ") : C.parts.length ? C.parts[0].label : (R.fert?CARRIERS[R.fert.type].label:"Water"))}</span></h2>` + head + parts +
+    `<div class="resbox small" id="carrierNote">${notes.map(x=>`<div>${x}</div>`).join("")||"No product volume to subtract."}<div class="tiny muted" style="margin-top:4px">Carrier = load volume − product volume. Rounded to 0.1 ${m?"L":"gal"}.</div></div>`;
+}
 function renderCost(R){
   const m = isMetric(), el = $("costCard");
   const any = R.products.some(o=>o.cpa!=null) || (R.fert && R.fert.cpa!=null);
@@ -1388,12 +1454,25 @@ function buildOrder(R){
   const m = isMetric(), groups = {};
   S.mix.products.forEach((p,i)=>{ const g = (FORM[p.form]||FORM.OTHER).g; (groups[g]=groups[g]||[]).push({p, o:R.products[i]}); });
   const fe = R.fert, fl = fe ? CARRIERS[fe.type].label : "";
-  const carrierTxt = fe && R.ok ? `${fl} ${showVolGal(fe.perFull,m)}${fe.waterFull>0.01?" + "+showVolGal(fe.waterFull,m)+" water":""} per full tank${R.partialGal>0?` (partial: ${showVolGal(fe.perPartial,m)}${fe.waterPartial>0.01?" + "+showVolGal(fe.waterPartial,m)+" water":""})`:""}` : "";
-  const steps = [fe ? {t:"Fill the tank ½ to ¾ full with the carrier", d:`Carrier: ${carrierTxt||fl}. If the carrier is part water, put the water in first. Start agitation and keep it running.`, items:[]}
-                    : {t:"Fill the tank ½ to ¾ full with clean water", d:"Start agitation and keep it running through mixing and spraying.", items:[]}];
+  // v2.6: carrier amounts per load. Start with about half the carrier (water first when it's part water), top off with the rest.
+  const C = R.carrierAmt, parts = R.ok ? C.parts : [];
+  const split = key => { // per load: [start parts], [rest parts], start total
+    const total = r1(C[key], m), pv = cParts(R, key, m); let left = r1(total/2, m);
+    const st = parts.map((x,i)=>{ const v = pv[i]; let a = Math.min(v, left);
+      if (a < Math.max(0.5, total*0.02)) a = 0;   // "about half": skip a sliver of the next component left over from rounding
+      left = Math.max(0, left-a); return {label:x.label, start:a, rest:Math.max(0, r1(v-a, m))}; });
+    return {st, total, start: r1(st.reduce((t,x)=>t+x.start, 0), m)};
+  };
+  const F = R.ok ? split("perFull") : null, P = R.ok && R.partialGal>0 ? split("perPartial") : null;
+  const lines = (which) => R.ok && parts.length ? parts.map((x,i)=>({label:x.label, full:F.st[i][which], partial:P?P.st[i][which]:null})).filter(x=>x.full>0.04||(x.partial||0)>0.04) : [];
+  const startAmt = R.ok ? (C.over ? "⚠ Products exceed the tank volume; no room for carrier." : `Carrier: ${showVol1(F.total,m)} per full tank${P?`, ${showVol1(P.total,m)} for the partial tank`:""}. Put in about half now:`) : "";
+  const steps = [fe ? {t:"Fill the tank about half full with the carrier", d:`Carrier: ${fl}${parts.length>1?" + water":""}. About 50% of the carrier (½ to ¾ is fine). If the carrier is part water, put the water in first. Start agitation and keep it running.`, items:[], carrier:lines("start"), amt:startAmt, printAmt:C&&C.over?startAmt:""}
+                    : {t:"Fill the tank about half full with clean water", d:"About 50% of the carrier water (½ to ¾ is fine). Start agitation and keep it running through mixing and spraying.", items:[], carrier:lines("start"), amt:startAmt, printAmt:C&&C.over?startAmt:""}];
   if (fe && !groups[1]) steps.push({t:"Compatibility agent (if the jar test or label calls for one)", d:"Pesticides in fertilizer carriers often need one, added before anything else.", items:[]});
   Object.keys(groups).map(Number).sort((a,b)=>a-b).forEach(g=>steps.push({t:GROUPS[g].t, d:GROUPS[g].d, items:groups[g]}));
-  steps.push({t:"Fill to final volume with "+(fe?"the rest of the carrier":"water"), d:`Top off to ${R.ok?showVolGal(R.tank,m)+" (full tank)"+(R.partialGal>0?" or "+showVolGal(R.partialGal,m)+" (partial tank)":""):"tank volume"}. Keep agitating and spray the mix the same day.`, items:[]});
+  steps.push({t:"Fill to final volume with the rest of the "+(fe?"carrier":"water"), d:`Top off to ${R.ok?showVol1(R.tank,m)+" (full tank)"+(R.partialGal>0?" or "+showVol1(R.partialGal,m)+" (partial tank)":""):"tank volume"}. Keep agitating and spray the mix the same day.`, items:[], carrier:lines("rest"),
+    amt: R.ok && !C.over ? "Add the rest of the carrier:" : "",
+    printAmt: R.ok && !C.over ? `Fill to ${showVol1(R.tank,m)} per full tank${P?`, ${showVol1(R.partialGal,m)} for the partial tank`:""}.` : ""});
   return steps;
 }
 TM.buildOrder = buildOrder;
@@ -1401,7 +1480,7 @@ function renderOrder(R){
   const m = isMetric(), steps = buildOrder(R);
   const amt = (o,p,base)=> (R.ok && num(p.rate)>0) ? showAmt(base,o.kind,m,p.unit).main : "rate?";
   $("orderOut").innerHTML = (S.mix.products.length ? "" : `<p class="muted">Add products on the Mix tab to build a mixing order.</p>`) +
-    `<ol class="steps">${steps.map(s=>`<li><div class="st">${esc(s.t)}</div><div class="small muted">${esc(s.d)}</div>${s.items.length?`<ul class="pl">${s.items.map(({p,o})=>`<li><span>${esc(p.name||"(unnamed)")} <span class="badge">${esc(p.form)}</span></span><span><b>${amt(o,p,o.perFull)}</b>${R.partialGal>0?` <span class="small muted">· partial ${amt(o,p,o.perPartial)}</span>`:""}</span></li>`).join("")}</ul>`:""}</li>`).join("")}</ol>
+    `<ol class="steps">${steps.map(s=>`<li><div class="st">${esc(s.t)}</div><div class="small muted">${esc(s.d)}</div>${s.amt?`<div class="small camt${/⚠/.test(s.amt)?" warn":""}">${esc(s.amt)}</div>`:""}${s.carrier&&s.carrier.length?`<ul class="pl car">${s.carrier.map(c=>`<li><span>${esc(c.label)} <span class="badge">carrier</span></span><span><b>${showVol1(c.full,m)}</b>${R.partialGal>0?` <span class="small muted">· partial ${showVol1(c.partial,m)}</span>`:""}</span></li>`).join("")}</ul>`:""}${s.items.length?`<ul class="pl">${s.items.map(({p,o})=>`<li><span>${esc(p.name||"(unnamed)")} <span class="badge">${esc(p.form)}</span></span><span><b>${amt(o,p,o.perFull)}</b>${R.partialGal>0?` <span class="small muted">· partial ${amt(o,p,o.perPartial)}</span>`:""}</span></li>`).join("")}</ul>`:""}</li>`).join("")}</ol>
     <div class="note" style="margin-top:10px"><b>Label first.</b> This is the standard WALES/APPLES-style sequence. If a product label gives a different mixing order, follow the label. Formulation types pulled from EPA are broad categories, so confirm each type on its label.</div>`;
 }
 function renderJar(R){
@@ -1425,7 +1504,7 @@ function renderJar(R){
 }
 function renderAll(){
   const R = TM.calc(S.mix);
-  renderHeader(); renderStats(R); renderFertOut(R); renderOutputs(R); renderCost(R); renderOrder(R); renderJar(R);
+  renderHeader(); renderStats(R); renderFertOut(R); renderOutputs(R); renderCarrier(R); renderCost(R); renderOrder(R); renderJar(R);
   return R;
 }
 
@@ -1650,8 +1729,8 @@ function renderFertOut(R){
       <div><div class="k">Per full tank</div><div class="v">${ga(fe.perFull)}</div><div class="s">${fe.density>0?lb(fe.lbFull):""}${fe.waterFull>0.01?(fe.density>0?" · ":"")+"+ "+ga(fe.waterFull)+" water":""}</div></div>
       <div><div class="k">Partial tank</div><div class="v">${R.partialGal>0?ga(fe.perPartial):"—"}</div><div class="s">${R.partialGal>0?(fe.density>0?lb(fe.perPartial*fe.density):"")+(fe.waterPartial>0.01?(fe.density>0?" · ":"")+"+ "+ga(fe.waterPartial)+" water":""):"none"}</div></div>
       <div><div class="k">Total job</div><div class="v">${ga(fe.total)}</div><div class="s">${fe.density>0?lb(fe.lbTotal):"&nbsp;"}</div></div></div>
-    <div class="resbox small">${fe.err?`<span class="warn">⚠ ${esc(fe.err)}</span>`:`Fertilizer applied: <b>${perA(fe.lbA)}</b> product (${showVolGal(fe.galA,m)}${m?"/ha":"/A"})${nut.length?" → "+nut.map(([k,v])=>`<b>${perA(v)} ${k}</b>`).join(" · "):" (enter the analysis for nutrients)"}`}
-      ${R.prodGalA>0?`<div class="tiny muted" style="margin-top:4px">Products take ${fmt(R.prodGalA,2)} gal/A of the ${fmt(R.gpa,2)} GPA, so the carrier fills the rest.</div>`:""}
+    <div class="resbox small">${fe.err?`<span class="warn">⚠ ${esc(fe.err)}</span>`:`Fertilizer applied: <b>${perA(fe.lbA)}</b> product (${m?fmt(fe.galA*GAL_L*AC_HA,0)+" L/ha":fmt(fe.galA,2)+" gal/A"})${nut.length?" → "+nut.map(([k,v])=>`<b>${perA(v)} ${k}</b>`).join(" · "):" (enter the analysis for nutrients)"}`}
+      ${R.prodVolA>0?`<div class="tiny muted" style="margin-top:4px">Products take ${m?fmt(R.prodVolA*GAL_L*AC_HA,1)+" L/ha":fmt(R.prodVolA,2)+" gal/A"} of the ${showCarrier(R,S.mix,m)}, so the carrier fills the rest (see Carrier to add).</div>`:""}
       ${fe.cpa!=null?`<div style="margin-top:4px">Fertilizer cost: <b>${money(m?fe.cpa*AC_HA:fe.cpa)}/${m?"ha":"A"}</b> · job <b>${money(fe.cost)}</b></div>`:num(S.mix.fert.price)>0?`<div class="warn" style="margin-top:4px">Enter the density to price per ${esc(S.mix.fert.priceUnit)}.</div>`:""}</div>`;
 }
 
@@ -1916,7 +1995,13 @@ function mixText(R){
   L.push(`Tank ${showVolGal(R.tank,m)} · ${showCarrier(R,S.mix,m)} · ${showArea(R.acres,S.mix,m)}`);
   L.push(`${showArea(R.acresPerTank,S.mix,m)} per tank · ${R.fullTanks} full tank(s)${R.partialGal>0?" + partial "+showVolGal(R.partialGal,m)+" ("+showArea(R.partialAcres,S.mix,m)+")":""} · total ${showVolGal(R.totalGal,m)}`);
   L.push(""); L.push("MIXING ORDER (per full tank"+(R.partialGal>0?" / partial tank":"")+"):");
-  buildOrder(R).forEach((s,i)=>{ L.push(`${i+1}. ${s.t}`); s.items.forEach(({p,o})=>L.push(`   - ${p.name}: ${showAmt(o.perFull,o.kind,m).main}${R.partialGal>0?" / "+showAmt(o.perPartial,o.kind,m).main:""}  (job total ${showAmt(o.total,o.kind,m).main})`)); });
+  if (R.ok){ const C = R.carrierAmt;
+    L.push(`Carrier per full tank ${showVol1(C.perFull,m)}${R.partialGal>0?" · partial "+showVol1(C.perPartial,m):""} · job ${showVol1(C.total,m)}`);
+    if (C.parts.length>1){ const f = cParts(R,"perFull",m), pp = cParts(R,"perPartial",m), t = cParts(R,"total",m);
+      C.parts.forEach((x,i)=>L.push(`   ${x.label}: ${showVol1(f[i],m)}${R.partialGal>0?" / "+showVol1(pp[i],m):""} (job ${showVol1(t[i],m)})`)); }
+    carrierNotes(R,m).forEach(x=>L.push("   "+x.replace(/<[^>]+>/g,"").replace(/&amp;/g,"&").replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&quot;/g,'"').replace(/&#39;/g,"'")));
+  }
+  buildOrder(R).forEach((s,i)=>{ L.push(`${i+1}. ${s.t}`); if (s.amt) L.push(`   ${s.amt}`); (s.carrier||[]).forEach(c=>L.push(`   - ${c.label} (carrier): ${showVol1(c.full,m)}${R.partialGal>0?" / "+showVol1(c.partial,m):""}`)); s.items.forEach(({p,o})=>L.push(`   - ${p.name}: ${showAmt(o.perFull,o.kind,m).main}${R.partialGal>0?" / "+showAmt(o.perPartial,o.kind,m).main:""}  (job total ${showAmt(o.total,o.kind,m).main})`)); });
   if (R.totalCost>0){ L.push(""); L.push(`Cost: ${money(m?R.costPerAcre*AC_HA:R.costPerAcre)}/${m?"ha":"A"} · total ${money(R.totalCost)}${R.costComplete?"":" (some products unpriced)"}`); }
   L.push(""); L.push("Follow all product labels. Jar test new combinations.");
   return L.join("\n");
@@ -1926,14 +2011,22 @@ function renderPrint(R){
   const m = isMetric();
   const rows = S.mix.products.map((p,i)=>{ const o=R.products[i], a = b=>showAmt(b,o.kind,m).main;
     return `<tr><td><b>${esc(p.name)}</b>${p.epa?"<br><small>EPA "+esc(p.epa)+"</small>":""}</td><td>${esc(p.form)}</td><td>${esc(p.rate)} ${esc(p.unit)} ${p.unit==="% v/v"?"":esc(p.basis)}</td><td>${a(o.perFull)}</td><td>${R.partialGal>0?a(o.perPartial):"—"}</td><td>${a(o.total)}</td><td>${o.cpa!=null?money(m?o.cpa*AC_HA:o.cpa):""}</td></tr>`; }).join("");
+  // v2.6 carrier rows (one per component: water, fertilizer) under the products
+  const C = R.carrierAmt, cv = g => R.ok ? showVol1(g,m) : "—";
+  const cf = cParts(R,"perFull",m), cpp = cParts(R,"perPartial",m), ct = cParts(R,"total",m);
+  const cparts = C.parts.length ? C.parts.map((x,i)=>({label:x.label, perFull:cf[i], perPartial:cpp[i], total:ct[i]})) : [{label:R.fert?CARRIERS[R.fert.type].label:"Water", perFull:0, perPartial:0, total:0}];
+  const crow = cparts.map(x=>`<tr class="ps-car"><td><b>${esc(x.label)}</b> <small>(carrier)</small></td><td>carrier</td><td>${C.parts.length>1?"":esc(showCarrier(R,S.mix,m))}</td><td><b>${cv(x.perFull)}</b></td><td>${R.partialGal>0?cv(x.perPartial):"—"}</td><td>${cv(x.total)}</td><td></td></tr>`).join("")
+    + (C.parts.length>1 ? `<tr class="ps-car"><td><b>Total carrier</b></td><td></td><td>${esc(showCarrier(R,S.mix,m))}</td><td><b>${cv(C.perFull)}</b></td><td>${R.partialGal>0?cv(C.perPartial):"—"}</td><td>${cv(C.total)}</td><td></td></tr>` : "");
+  const cnotes = R.ok ? carrierNotes(R,m) : [];
   $("printSheet").innerHTML = `<h1>${esc(S.mix.name||"Tank mix")}</h1>
     <div class="ps-meta">Printed ${new Date().toLocaleString()} · TankMix Pro v${APP_VERSION}</div>
     <table><tr><th>Tank</th><th>Carrier</th><th>Field</th><th>Area/tank</th><th>Full tanks</th><th>Partial tank</th><th>Total spray</th></tr>
     <tr><td>${showVolGal(R.tank,m)}</td><td>${showCarrier(R,S.mix,m)}</td><td>${showArea(R.acres,S.mix,m)}</td><td>${showArea(R.acresPerTank,S.mix,m)}</td><td>${R.fullTanks}</td><td>${R.partialGal>0?showVolGal(R.partialGal,m)+" ("+showArea(R.partialAcres,S.mix,m)+")":"none"}</td><td>${showVolGal(R.totalGal,m)}</td></tr></table>
-    <table><tr><th>Product</th><th>Type</th><th>Rate</th><th>Per full tank</th><th>Partial tank</th><th>Job total</th><th>$/${m?"ha":"A"}</th></tr>${rows||"<tr><td colspan=7>No products</td></tr>"}</table>
+    <table><tr><th>Product</th><th>Type</th><th>Rate</th><th>Per full tank</th><th>Partial tank</th><th>Job total</th><th>$/${m?"ha":"A"}</th></tr>${rows||"<tr><td colspan=7>No products</td></tr>"}${crow}</table>
+    ${cnotes.length?`<p style="font-size:9.5pt;margin:2pt 0 6pt">${cnotes.join("<br>")}</p>`:""}
     ${R.totalCost>0?`<p><b>Cost:</b> ${money(m?R.costPerAcre*AC_HA:R.costPerAcre)}/${m?"ha":"acre"} · <b>Total:</b> ${money(R.totalCost)}${R.costComplete?"":" (some products unpriced)"}</p>`:""}
-    <h3>Mixing order</h3><ol>${buildOrder(R).map(s=>`<li><b>${esc(s.t)}</b>${s.items.length?": "+s.items.map(({p,o})=>esc(p.name)+" "+showAmt(o.perFull,o.kind,m).main+(R.partialGal>0?" / "+showAmt(o.perPartial,o.kind,m).main:"")).join("; "):""}</li>`).join("")}</ol>
-    <p style="font-size:10pt">Amounts are full tank / partial tank. Follow all product labels; label mixing order and restrictions take priority. Jar test new combinations.</p>
+    <h3>Mixing order</h3><ol>${buildOrder(R).map(s=>`<li><b>${esc(s.t)}</b>${s.carrier&&s.carrier.length?": "+s.carrier.map(c=>esc(c.label)+" "+showVol1(c.full,m)+(R.partialGal>0?" / "+showVol1(c.partial,m):"")).join("; "):""}${s.printAmt?` <span style="font-size:9.5pt">(${esc(s.printAmt.replace(/\.$/,""))})</span>`:""}${s.items.length?": "+s.items.map(({p,o})=>esc(p.name)+" "+showAmt(o.perFull,o.kind,m).main+(R.partialGal>0?" / "+showAmt(o.perPartial,o.kind,m).main:"")).join("; "):""}</li>`).join("")}</ol>
+    <p style="font-size:10pt">Amounts are full tank / partial tank. Carrier = load volume − product volume, to 0.1 ${m?"L":"gal"}. Follow all product labels; label mixing order and restrictions take priority. Jar test new combinations.</p>
     <p style="font-size:11pt">Applicator: ____________________ Date: __________ Field: ____________________ Wind: ________ Temp: ______</p>`;
 }
 /* Print view. v2.0 printed by closing a dialog and calling window.print() from a timer. That works in desktop
@@ -2962,18 +3055,29 @@ function mixOptions(sel){
 function mixFor(ref){ return ref==="__cur" ? S.mix : ref ? (S.mixes.find(r=>r.id===ref)||{}).mix : null; }
 // Products and amounts for the logged acres, computed from a mix with the field size swapped for the record's acres
 function logProducts(mix, acres){
-  if (!mix) return {products:[], tanks:"", carrier:""};
+  if (!mix) return {products:[], tanks:"", carrier:"", carrierAmt:""};
   const m = clone(mix); if (num(acres)>0) m.area = {v:num(acres), u:"ac"};
   const R = TM.calc(m), metric = isMetric();
   const products = m.products.map((p,i)=>{ const o = R.products[i]; return { name:p.name, epa:p.epa||"", custom:!p.epa && !!p.custom, cat:p.cat||"", rate:(p.rate||"")+" "+p.unit+(p.unit==="% v/v"?"":" "+(p.basis||"")), total: R.ok&&num(p.rate)>0 ? showAmt(o.total,o.kind,metric).main : "" }; });
   if (R.fert) products.unshift({ name:CARRIERS[R.fert.type].label+" (carrier)", epa:"", rate:fmt(R.fert.galA,2)+" gal/A", total:showVolGal(R.fert.total,metric) });
-  return { products, tanks: R.ok ? +(R.tanks.toFixed(2)) : "", carrier: R.ok ? showCarrier(R,m,metric)+(R.fert?" "+CARRIERS[R.fert.type].label:" water")+" · "+showVolGal(R.tank,metric)+" tank" : "" };
+  return { products, tanks: R.ok ? +(R.tanks.toFixed(2)) : "", carrier: R.ok ? showCarrier(R,m,metric)+(R.fert?" "+CARRIERS[R.fert.type].label:" water")+" · "+showVolGal(R.tank,metric)+" tank" : "", carrierAmt: carrierAmtTxt(R, metric) };
+}
+// v2.6: carrier amounts for a record (optional string field; older versions ignore it)
+function carrierAmtTxt(R, metric){
+  if (!R.ok) return "";
+  const C = R.carrierAmt, v = g => showVol1(g, metric), pp = R.partialGal>0;
+  let t = "Carrier "+v(C.perFull)+" per full tank"+(pp?" · "+v(C.perPartial)+" partial tank":"")+" · "+v(C.total)+" total";
+  if (C.parts.length>1){ const f = cParts(R,"perFull",metric), q = cParts(R,"perPartial",metric), tt = cParts(R,"total",metric);
+    t += " ("+C.parts.map((x,i)=>x.label+" "+v(f[i])+(pp?" / "+v(q[i]):"")+", total "+v(tt[i])).join(" + ")+")"; }
+  if (C.over) t += " · ⚠ products exceed tank volume";
+  if (C.dryUnknown.length) t += " · dry products not subtracted: "+C.dryUnknown.join(", ");
+  return t;
 }
 TM.logProducts = logProducts;
 function blankLog(){
   const R = TM.calc(S.mix), ac = R.ok ? +R.acres.toFixed(2) : "";
   const lp = logProducts(S.mix, ac), sf = fieldByName(S.mix.name), gfFromField = sf && (sf.grower || sf.farm);
-  return { id:null, dt:nowLocal(), grower: gfFromField ? sf.grower||"" : S.settings.lastGrower||"", farm: gfFromField ? sf.farm||"" : S.settings.lastFarm||"", field:S.mix.name||"", crop:"", acres:ac, pests:"", mixRef:"__cur", mixName:S.mix.name||"", products:lp.products, tanks:lp.tanks, carrier:lp.carrier,
+  return { id:null, dt:nowLocal(), grower: gfFromField ? sf.grower||"" : S.settings.lastGrower||"", farm: gfFromField ? sf.farm||"" : S.settings.lastFarm||"", field:S.mix.name||"", crop:"", acres:ac, pests:"", mixRef:"__cur", mixName:S.mix.name||"", products:lp.products, tanks:lp.tanks, carrier:lp.carrier, carrierAmt:lp.carrierAmt,
     applicator:S.settings.lastApplicator||"", license:S.settings.lastLicense||"", wx:{}, notes:"", rinsate:"", loc:fieldLoc(S.mix.name) };
 }
 // a saved field with this exact name (e.g. the mix is named after the field) prefills the location
@@ -3019,8 +3123,8 @@ function renderLogForm(){
     <div><label class="f" for="lgNotes">Notes</label><textarea id="lgNotes" rows="3" placeholder="nozzles, pressure, buffer zones, observations">${esc(r.notes)}</textarea></div>
     <div class="grid g2"><button class="btn" id="lgSave">Save record</button><button class="btn alt" id="lgCancel">Cancel</button></div>
   </div>`;
-  const drawProds = () => { $("lgProds").innerHTML = r.products.length ? `<div class="small"><b>${esc(r.carrier||"")}</b></div>`+r.products.map(p=>`<div class="kvline"><span>${esc(p.name)}${p.epa?` <span class="tiny muted">EPA ${esc(p.epa)}</span>`:""}<br><span class="tiny muted">${esc(p.rate)}</span></span><b>${esc(p.total)}</b></div>`).join("") : `<span class="muted small">No mix chosen. Pick one to record the products and amounts.</span>`; };
-  const remix = () => { const lp = logProducts(mixFor(r.mixRef), r.acres); r.products = lp.products; r.carrier = lp.carrier; r.mixName = r.mixRef ? (mixFor(r.mixRef)||{}).name||"" : ""; if (lp.tanks!=="" ) { r.tanks = lp.tanks; $("lgTanks").value = lp.tanks; } drawProds(); };
+  const drawProds = () => { $("lgProds").innerHTML = r.products.length ? `<div class="small"><b>${esc(r.carrier||"")}</b>${r.carrierAmt?`<div class="tiny" id="lgCarrierAmt">${esc(r.carrierAmt)}</div>`:""}</div>`+r.products.map(p=>`<div class="kvline"><span>${esc(p.name)}${p.epa?` <span class="tiny muted">EPA ${esc(p.epa)}</span>`:""}<br><span class="tiny muted">${esc(p.rate)}</span></span><b>${esc(p.total)}</b></div>`).join("") : `<span class="muted small">No mix chosen. Pick one to record the products and amounts.</span>`; };
+  const remix = () => { const lp = logProducts(mixFor(r.mixRef), r.acres); r.products = lp.products; r.carrier = lp.carrier; r.carrierAmt = lp.carrierAmt; r.mixName = r.mixRef ? (mixFor(r.mixRef)||{}).name||"" : ""; if (lp.tanks!=="" ) { r.tanks = lp.tanks; $("lgTanks").value = lp.tanks; } drawProds(); };
   drawProds();
   bindLocSection(r);
   const drawFarms = () => { $("farmList").innerHTML = farmNames($("lgGrower").value).map(f=>`<option value="${esc(f)}">`).join(""); };
@@ -3191,7 +3295,7 @@ function recHtml(r, print){
   return `<table class="kv"><tr><th>Date / time</th><td>${esc(dtTxt(r.dt))}</td></tr>${r.grower?`<tr><th>Grower</th><td>${esc(r.grower)}</td></tr>`:""}${r.farm?`<tr><th>Farm</th><td>${esc(r.farm)}</td></tr>`:""}<tr><th>Field</th><td>${esc(r.field)}${r.crop?" · "+esc(r.crop):""}</td></tr>
     ${hasL?`<tr><th>Field location</th><td>${locSummary(L, print)}${sk?`<div style="display:flex;gap:10px;align-items:flex-start;margin-top:6px"><div style="flex:0 0 auto">${sk}</div><span style="font-size:8.5pt;color:#444">Boundary sketch (red dot = pin).<br>Corners: ${L.boundary.map(p=>GEO.fmt(p[0],p[1])).join("; ")}</span></div>`:""}</td></tr>`:""}
     <tr><th>Acres / loads</th><td>${esc(r.acres)} ac · ${esc(r.tanks)} tank loads</td></tr>${r.pests?`<tr><th>Target pests</th><td>${esc(r.pests)}</td></tr>`:""}
-    <tr><th>Mix</th><td>${esc(r.mixName||"—")}<br><span class="small muted">${esc(r.carrier||"")}</span></td></tr>
+    <tr><th>Mix</th><td>${esc(r.mixName||"—")}<br><span class="small muted">${esc(r.carrier||"")}</span>${r.carrierAmt?`<br><span class="small">${esc(r.carrierAmt)}</span>`:""}</td></tr>
     <tr><th>Products</th><td>${(r.products||[]).map(p=>`${esc(p.name)}${p.epa?" (EPA "+esc(p.epa)+")":p.custom?" (custom"+((CCAT[p.cat]||{}).l?", "+esc(CCAT[p.cat].l):"")+")":""}: ${esc(p.rate)}${p.total?" · total "+esc(p.total):""}`).join("<br>")||"—"}</td></tr>
     <tr><th>Weather</th><td>${[w.tempF!==""&&w.tempF!=null?esc(w.tempF)+"°F":"", w.rh!==""&&w.rh!=null?esc(w.rh)+"% RH":"", w.windMph!==""&&w.windMph!=null?"wind "+esc(w.windMph)+" mph "+esc(w.windDirTxt||""):"", w.gustMph!==""&&w.gustMph!=null?"gusts "+esc(w.gustMph)+" mph":"", esc(w.sky||"")].filter(Boolean).join(" · ")||"—"}${w.source?`<br><span class="tiny muted">${esc(w.source)}${w.manual?" · edited by hand":""}</span>`:""}</td></tr>
     <tr><th>Applicator</th><td>${esc(r.applicator)}${r.license?" · #"+esc(r.license):""}</td></tr>
@@ -3213,17 +3317,17 @@ function printLog(recs){
   openPrintView("log", t, recs.map(r=>recTxt(r)).join("\n\n"));
 }
 function recTxt(r){ const w = r.wx||{}, L = r.loc, hasL = L && GEO.valid(L.lat, L.lon);
-  return [dtTxt(r.dt)+" · "+(r.field||"")+(r.crop?" · "+r.crop:""), r.grower||r.farm ? [r.grower?"Grower: "+r.grower:"", r.farm?"Farm: "+r.farm:""].filter(Boolean).join(" · ") : "", hasL ? "Location: "+GEO.fmt(L.lat, L.lon)+" ("+GEO.dms(L.lat, L.lon)+") "+GEO.mapsUrl(L.lat, L.lon)+(L.boundary&&L.boundary.length>=3?" · boundary "+fmt(+L.bAcres||GEO.acres(L.boundary),1)+" ac":"") : "", (r.acres?r.acres+" ac · ":"")+(r.tanks?r.tanks+" tank loads":""), r.pests?"Pests: "+r.pests:"", "Mix: "+(r.mixName||"—")+(r.carrier?" ("+r.carrier+")":""),
+  return [dtTxt(r.dt)+" · "+(r.field||"")+(r.crop?" · "+r.crop:""), r.grower||r.farm ? [r.grower?"Grower: "+r.grower:"", r.farm?"Farm: "+r.farm:""].filter(Boolean).join(" · ") : "", hasL ? "Location: "+GEO.fmt(L.lat, L.lon)+" ("+GEO.dms(L.lat, L.lon)+") "+GEO.mapsUrl(L.lat, L.lon)+(L.boundary&&L.boundary.length>=3?" · boundary "+fmt(+L.bAcres||GEO.acres(L.boundary),1)+" ac":"") : "", (r.acres?r.acres+" ac · ":"")+(r.tanks?r.tanks+" tank loads":""), r.pests?"Pests: "+r.pests:"", "Mix: "+(r.mixName||"—")+(r.carrier?" ("+r.carrier+")":""), r.carrierAmt||"",
     ...(r.products||[]).map(p=>"  - "+p.name+(p.epa?" (EPA "+p.epa+")":"")+": "+p.rate+(p.total?" · total "+p.total:"")),
     "Weather: "+[w.tempF?w.tempF+"°F":"", w.rh?w.rh+"% RH":"", w.windMph?"wind "+w.windMph+" mph "+(w.windDirTxt||""):"", w.gustMph?"gusts "+w.gustMph+" mph":"", w.sky||""].filter(Boolean).join(" · "),
     "Applicator: "+(r.applicator||"")+(r.license?" #"+r.license:""), r.rinsate?"Rinsate: "+r.rinsate:"", r.notes?"Notes: "+r.notes:""].filter(Boolean).join("\n"); }
 TM.printLog = printLog;
 function csvCell(v){ v = v==null ? "" : String(v); return /[",\n\r]/.test(v) ? '"'+v.replace(/"/g,'""')+'"' : v; }
 function logCsv(recs){
-  const head = ["Date/time","Grower","Farm","Field","Crop","Latitude","Longitude","Map link","Mapped boundary acres","Boundary corners (lat lon; ...)","Acres","Tank loads","Target pests","Mix","Carrier","Products (rate; total)","EPA reg nos","Temp F","RH %","Wind mph","Wind from","Gust mph","Sky","Weather source","Applicator","License","Rinsate/cleanout","Notes"];
+  const head = ["Date/time","Grower","Farm","Field","Crop","Latitude","Longitude","Map link","Mapped boundary acres","Boundary corners (lat lon; ...)","Acres","Tank loads","Target pests","Mix","Carrier","Carrier amounts","Products (rate; total)","EPA reg nos","Temp F","RH %","Wind mph","Wind from","Gust mph","Sky","Weather source","Applicator","License","Rinsate/cleanout","Notes"];
   const rows = recs.map(r=>{ const w = r.wx||{}, P = r.products||[];
     const L = r.loc && GEO.valid(r.loc.lat, r.loc.lon) ? r.loc : null, B = L && L.boundary && L.boundary.length>=3 ? L.boundary : null;
-    return [r.dt, r.grower||"", r.farm||"", r.field, r.crop, L?L.lat:"", L?L.lon:"", L?GEO.mapsUrl(L.lat, L.lon):"", B?+(+L.bAcres||GEO.acres(B)).toFixed(2):"", B?B.map(p=>p[0]+" "+p[1]).join("; "):"", r.acres, r.tanks, r.pests, r.mixName, r.carrier, P.map(p=>p.name+" ("+p.rate+(p.total?"; "+p.total:"")+")").join(" | "), P.map(p=>p.epa).filter(Boolean).join(" | "),
+    return [r.dt, r.grower||"", r.farm||"", r.field, r.crop, L?L.lat:"", L?L.lon:"", L?GEO.mapsUrl(L.lat, L.lon):"", B?+(+L.bAcres||GEO.acres(B)).toFixed(2):"", B?B.map(p=>p[0]+" "+p[1]).join("; "):"", r.acres, r.tanks, r.pests, r.mixName, r.carrier, r.carrierAmt||"", P.map(p=>p.name+" ("+p.rate+(p.total?"; "+p.total:"")+")").join(" | "), P.map(p=>p.epa).filter(Boolean).join(" | "),
       w.tempF, w.rh, w.windMph, w.windDirTxt||compass(w.windDir), w.gustMph, w.sky, w.source ? w.source+(w.manual?" (edited by hand)":"") : (w.tempF||w.windMph ? "Entered by hand" : ""), r.applicator, r.license, r.rinsate, r.notes]; });
   return [head, ...rows].map(r=>r.map(csvCell).join(",")).join("\r\n");
 }
