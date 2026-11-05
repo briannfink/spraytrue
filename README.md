@@ -1,4 +1,13 @@
-# TankMix Pro (v2.7.1)
+# TankMix Pro (v2.8.0)
+
+
+## Unified EPA + Washington State (WSDA) product search (v2.8.0)
+Lookup and Products › **Add product** search both EPA (live APPRIL/PPLS) and a bundled Washington State Dept of Agriculture registration index in one box — no database picker.
+- **WSDA coverage in the bundled index:** spray adjuvants and 25(b) minimum-risk pesticides from the public [WAPRS search](https://fortress.wa.gov/agr/pisces/WSDASearch/Default) (WALTR fertilizers optional via refresh). Section 3 (EPA) pesticides registered in WA can be added with `tools/update_wsda.py --section3` (large / slow).
+- **Merged rows:** when a WSDA Section 3 record shares an EPA Reg. No. with an EPA hit, one row shows **EPA** + **WSDA** badges and the detail view adds a Washington registration block (status, expiry, View WA label PDF → WSDA hosted file, not re-hosted).
+- **WSDA-only rows:** adjuvants, 25(b), fertilizers, etc. open a WSDA detail (name, registrant, WA reg no., type, agents, status/expiry, View WA label / WSDA page). Save to My products tags the entry with `waReg` / `wsdaId` (rates entered by you). Dedupe by WA reg no. (and EPA reg when present).
+- **Data approach:** WSDA has no public REST API and no CORS for browser calls from GitHub Pages. The app ships `data/wsda-products.json` (lazy-fetched, SW-cached). Refresh: `python3 tools/update_wsda.py` (polite ~1 req/s HTML pagination of the public search; CSV export postback is broken without ASP.NET client scripts). Optional weekly GitHub Action: `.github/workflows/update-wsda.yml`.
+- **Storage:** additive only (`waReg`, `wsdaId`, `wsdaDb`, `source` on library entries). Live and preview share `tm.*`.
 
 ## Products EPA lookup + duplicate guard (v2.7.1)
 - The **Products** tab has an **Add EPA product** search at the top (same EPA/APPRIL + PPLS search as Lookup, without crop/pest filters). Results open the same detail view; **Save to My products** is there, and rows already saved show **In My products**.
@@ -102,7 +111,7 @@ Go to the **Products** tab > **Add custom product** to add products without an E
 **Quick add** on the Mix tab is now a searchable picker. It lists My products tagged EPA or Custom, filterable, plus the generic adjuvants. Picking one fills its default rate, unit, type and price. A generic or free-typed product shows **Save to My products**. You can edit, duplicate or delete products from the ⋯ menu. Backup and import include custom products.
 
 ## Saved data (localStorage, shared by live and preview)
-The keys are `tm.settings`, `tm.mixes`, `tm.library`, `tm.log`, `tm.current`, `tm.epaCache`, and `tm.wxLast`. v2.7.1 adds `tm.wu` (Weather Underground PWS accounts/keys/prefs, same shape idea as `tm.tempest`). v2.6 adds no keys; log records may get a `carrierAmt` string and products may carry a `density` for dry products (the existing field). v2.5 adds `tm.tempest` (`{accounts:[{id,name,token,stations}], prefs:{stationId:{hidden,alias}}, def, sel, seen}`); records may get `wx.station`/`wx.obsTs`/`wx.deltaTC`, and `settings.wxSrc` may be `"tempest"` (v2.4 ignores all of these and falls back to Open-Meteo, which test7 checks). v2.2 adds `tm.fields` (saved fields) and `tm.schema` (2). v2.3 adds no keys and leaves the schema at 2. Records and saved fields may get optional `grower`/`farm` strings, and settings may get `lastGrower`/`lastFarm`. v2.2 ignores these and keeps them when it edits a record or field, which the tests check.
+The keys are `tm.settings`, `tm.mixes`, `tm.library`, `tm.log`, `tm.current`, `tm.epaCache`, and `tm.wxLast`. v2.8.0 adds no new `tm.*` keys (library entries may gain `waReg`/`wsdaId`). v2.7.1 adds `tm.wu` (Weather Underground PWS accounts/keys/prefs, same shape idea as `tm.tempest`). v2.6 adds no keys; log records may get a `carrierAmt` string and products may carry a `density` for dry products (the existing field). v2.5 adds `tm.tempest` (`{accounts:[{id,name,token,stations}], prefs:{stationId:{hidden,alias}}, def, sel, seen}`); records may get `wx.station`/`wx.obsTs`/`wx.deltaTC`, and `settings.wxSrc` may be `"tempest"` (v2.4 ignores all of these and falls back to Open-Meteo, which test7 checks). v2.2 adds `tm.fields` (saved fields) and `tm.schema` (2). v2.3 adds no keys and leaves the schema at 2. Records and saved fields may get optional `grower`/`farm` strings, and settings may get `lastGrower`/`lastFarm`. v2.2 ignores these and keeps them when it edits a record or field, which the tests check.
 
 Migration only adds fields: library items get `custom`/`mfr`/`cat`/`phys`, and log records may get `loc {lat, lon, boundary, bAcres, fieldId}`. No keys are renamed or removed, so v2.1 still reads everything.
 
