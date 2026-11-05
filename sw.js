@@ -1,7 +1,7 @@
-// TankMix service worker v2.7.1. Pages: network first (so updates show up), cached copy when offline.
+// TankMix service worker v2.8.0. Pages: network first (so updates show up), cached copy when offline.
 // Other app files: cache first. Cross-origin requests (EPA, Open-Meteo, map tiles) and the /preview/ build are never touched.
-const CACHE = "tankmix-2.7.1-4d7b0e28";
-const SHELL = ["./", "./index.html", "./manifest.webmanifest", "./icons/icon-192.png", "./icons/icon-512.png", "./icons/maskable-512.png"];
+const CACHE = "tankmix-2.8.0-c66ff2ca";
+const SHELL = ["./", "./index.html", "./manifest.webmanifest", "./wsda-products.json", "./icons/icon-192.png", "./icons/icon-512.png", "./icons/maskable-512.png"];
 const PREVIEW = new URL("./preview/", self.registration.scope).pathname;
 self.addEventListener("install", e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL.map(u => new Request(u, {cache: "reload"})))).then(() => self.skipWaiting())); });
 self.addEventListener("activate", e => { e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k.startsWith("tankmix-") && k !== CACHE).map(k => caches.delete(k)))).then(() => self.clients.claim())); });
