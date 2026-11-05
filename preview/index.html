@@ -2440,7 +2440,7 @@ function renderWx(){
     const ev = sprayFlags(cur, {nearDusk: nearDusk(n.at, d.sun)}), rs0 = rainSoon(H), rs = rs0 && !(rs0===H[0] && num(cur.pop)>=30) ? rs0 : null;
     const age = (Date.now() - Date.parse(d.fetched))/60000, stale = T && TP.ageMin(T.ts) > (d.wu ? WU.STALE_MIN : TP.STALE_MIN);
     const tile = (k, v, sub) => `<div><div class="k">${k}</div><div class="v">${v}</div>${sub?`<div class="tiny muted">${sub}</div>`:""}</div>`;
-    if (d.fallback) h += `<div class="flag caution">${esc(srcKind||"Station")} unavailable: ${esc(d.fallback)}. Showing Open-Meteo model data for the station's location instead.</div>`;
+    if (d.fallback) h += `<div class="flag caution">${esc(srcKind || (wantWu?"WU":wantTp?"Tempest":"Station"))} unavailable: ${esc(d.fallback)}. Showing Open-Meteo model data for the station's location instead.</div>`;
     if (T) h += `<div class="small" style="margin-top:10px">📡 <b>${esc(T.label)}</b> <span class="badge">${esc(srcKind)}</span> <span class="muted">· ${esc(T.acct||"")}</span></div>`;
     h += `<div class="row" style="justify-content:space-between;margin:${T?"4px":"10px"} 0 6px"><b>Now · ${esc(hhmm(n.at))} ${esc(d.tz||"")}${T?` <span class="tiny ${stale?"warn":"muted"}" id="wxAge">· ${esc(TP.ago(T.ts))}</span>`:""}</b><span class="pill ${ev.level}">${{good:"Good",caution:"Caution",poor:"Poor"}[ev.level]}</span></div>
     ${stale?`<div class="flag caution">Stale reading: ${esc(T.label)} last reported ${esc(TP.ago(T.ts))}. The station may be offline. Check conditions at the field before you spray.</div>`:""}
