@@ -967,8 +967,17 @@ svg.leaflet-image-layer.leaflet-interactive path {
 <section class="view" id="v-products" role="tabpanel">
   <div id="prodLibPane">
     <div class="card">
+      <h2>Add EPA product</h2>
+      <p class="small muted" style="margin-top:0">Search EPA here to save products to My products without leaving this tab. The full Lookup tab still has crop and pest filters.</p>
+      <form id="prodLkForm" class="grid" autocomplete="off">
+        <input id="prodLkQ" type="search" placeholder="Product, active ingredient, or EPA Reg. No." enterkeyhint="search">
+        <button class="btn block" type="submit">Search EPA</button>
+      </form>
+      <div id="prodLkOut" style="margin-top:10px"></div>
+    </div>
+    <div class="card">
       <h2 style="justify-content:space-between">My products <span class="tiny muted" id="libCount" style="font-weight:650"></span></h2>
-      <p class="small muted" style="margin-top:0">Products here show up in <b>Quick add</b> on the Mix tab. Save EPA products from Lookup, or add your own products that have no EPA number. Tap a product to see its details.</p>
+      <p class="small muted" style="margin-top:0">Products here show up in <b>Quick add</b> on the Mix tab. Save EPA products above or from Lookup, or add your own products that have no EPA number. Tap a product to see its details.</p>
       <input id="libQ" type="search" placeholder="Search My products" autocomplete="off" style="margin-bottom:8px">
       <div class="seg sm" id="libF" style="margin:0 0 8px;width:100%;display:flex">
         <button type="button" data-v="all" class="on" style="flex:1">All</button>
@@ -1019,8 +1028,9 @@ svg.leaflet-image-layer.leaflet-interactive path {
       <div class="row"><span class="f" style="margin:0;min-width:90px">Theme</span>
         <div class="seg" id="segTheme"><button data-v="light">Sun</button><button data-v="dark">Dark</button></div></div>
       <div><label class="f" for="wxSrc">Weather source</label><select id="wxSrc"></select>
-        <div class="tiny muted" id="wxSrcNote" style="margin-top:4px">Open-Meteo is a free model forecast. Choose Tempest to use live readings from your own WeatherFlow Tempest stations.</div>
-        <div id="tpPanel" class="tppanel" hidden></div></div>
+        <div class="tiny muted" id="wxSrcNote" style="margin-top:4px">Open-Meteo is a free model forecast. Choose Tempest or Weather Underground to use live readings from your own personal weather stations.</div>
+        <div id="tpPanel" class="tppanel" hidden></div>
+        <div id="wuPanel" class="tppanel" hidden></div></div>
       <p class="tiny muted" style="margin:0">Data is stored only in this browser (localStorage). Use Saved › Backup to move it to another device. <span id="verLbl"></span></p>
     </div>
   </div>
@@ -1048,8 +1058,8 @@ svg.leaflet-image-layer.leaflet-interactive path {
       <button class="btn alt" id="btnImport">Import backup</button>
     </div>
     <input type="file" id="importFile" accept="application/json,.json" hidden>
-    <label class="chk" style="margin-top:10px"><input type="checkbox" id="bkTokens"> Include Tempest access tokens</label>
-    <p class="tiny muted" style="margin:8px 0 0">A backup includes saved mixes, My products (EPA and custom), saved fields, spray records (with field locations) and settings. Tempest station names and choices are included; the access tokens are left out unless you tick the box above. Anyone with the file could read your station data with them, so only tick it for a copy you keep private.</p>
+    <label class="chk" style="margin-top:10px"><input type="checkbox" id="bkTokens"> Include Tempest / Weather Underground API keys</label>
+    <p class="tiny muted" style="margin:8px 0 0">A backup includes saved mixes, My products (EPA and custom), saved fields, spray records (with field locations) and settings. Tempest and Weather Underground station names and choices are included; access tokens and API keys are left out unless you tick the box above. Anyone with the file could read your station data with them, so only tick it for a copy you keep private.</p>
   </div>
 </section>
 </main>
@@ -1086,13 +1096,13 @@ svg.leaflet-image-layer.leaflet-interactive path {
 <script>
 "use strict";
 /* =====================================================================
-   TankMix Pro v2.7 (single-file app). Sections:
+   TankMix Pro v2.7.1 (single-file app). Sections:
    1. Constants (units, formulation types, mixing-order groups)
    2. Pure calculation engine (TM.calc), unit-tested from node
    3. Storage (localStorage)
    4. UI: Mix, Order/Jar test, Lookup (EPA), Saved, Print
    ===================================================================== */
-const APP_VERSION = "2.7.0";
+const APP_VERSION = "2.7.1";
 const TM = window.TM = {};
 
 /* ---------- 1. Constants ---------- */
@@ -1607,12 +1617,31 @@ function productMenu(p){
   $("pmDup").onclick = ()=>{ const c = Object.assign({}, p); closeDlg(); addProduct(c); };
   $("pmDel").onclick = ()=>{ S.mix.products = S.mix.products.filter(x=>x!==p); saveCurrent(); closeDlg(); renderProducts(); renderAll(); toast("Removed"); };
 }
+// Normalize EPA Reg. No. for duplicate checks (trim, upper case, drop spaces)
+const normEpa = e => String(e||"").trim().toUpperCase().replace(/\s+/g,"");
+TM.normEpa = normEpa;
+// Find an existing My-products entry: EPA products by normalized reg no.; custom by trimmed case-insensitive name.
+function findLibraryDup(p, list){
+  list = list || S.library;
+  const id = p && p.id, ne = normEpa(p && p.epa);
+  const prev = (p && p.prevEpas || []).map(normEpa).filter(Boolean);
+  if (ne || prev.length){
+    const keys = new Set([ne, ...prev].filter(Boolean));
+    return list.find(x => x.id!==id && keys.has(normEpa(x.epa))) || null;
+  }
+  const n = String((p && p.name)||"").trim().toLowerCase();
+  if (!n) return null;
+  return list.find(x => x.id!==id && !normEpa(x.epa) && String(x.name||"").trim().toLowerCase()===n) || null;
+}
+TM.findLibraryDup = findLibraryDup;
 function saveToLibrary(p){
   const rec = normLib({ id:uid(), name:p.name||"(unnamed)", epa:p.epa||"", custom:!p.epa, form:p.form, unit:p.unit, basis:p.basis, rate:p.rate||"", price:p.price||"", priceUnit:p.priceUnit, density:p.density||"", updated:Date.now() });
-  const ex = S.library.findIndex(x=>x.name.toLowerCase()===rec.name.toLowerCase() && (x.epa||"")===rec.epa);
-  if (ex>=0){ rec.id = S.library[ex].id; S.library[ex] = rec; } else S.library.push(rec);
-  persist("library"); renderProducts(); renderLibrary(); toast("Saved to My products");
+  if (findLibraryDup(rec)){ toast("Already in My products"); if (typeof renderProdLk==="function") renderProdLk(); return false; }
+  S.library.push(rec);
+  persist("library"); renderProducts(); renderLibrary(); if (typeof renderProdLk==="function") renderProdLk(); toast("Saved to My products");
+  return true;
 }
+TM.saveToLibrary = saveToLibrary;
 
 /* ---------- Dialog & tabs ---------- */
 function openDlg(title, html){ if (TM.dlgCleanup){ try { TM.dlgCleanup(); } catch(e){} TM.dlgCleanup = null; } $("dlgT").textContent = title; $("dlgB").innerHTML = html; const d=$("dlg"); if (d.showModal) d.showModal(); else d.setAttribute("open",""); }
@@ -1706,9 +1735,9 @@ function bindSettings(){
   $("segTheme").onclick = e=>{ const v = e.target.dataset.v; if(!v) return; S.settings.theme=v; persist("settings"); applyTheme(); renderSettings(); };
   $("jarSize").onchange = e=>{ S.settings.jar = +e.target.value; persist("settings"); renderAll(); };
   $("btnExport").onclick = ()=>{
-    // v2.5: Tempest station choices always; access tokens only when "Include Tempest access tokens" is ticked
+    // v2.5/v2.7.1: Tempest + WU station choices always; tokens/API keys only when the backup box is ticked
     const withTok = !!($("bkTokens") && $("bkTokens").checked);
-    const data = JSON.stringify({app:"tankmix-pro", version:APP_VERSION, exported:new Date().toISOString(), settings:S.settings, mixes:S.mixes, library:S.library, fields:S.fields, log:S.log, current:S.mix, tempest:TM.TP.backup(withTok)}, null, 1);
+    const data = JSON.stringify({app:"tankmix-pro", version:APP_VERSION, exported:new Date().toISOString(), settings:S.settings, mixes:S.mixes, library:S.library, fields:S.fields, log:S.log, current:S.mix, tempest:TM.TP.backup(withTok), wu:TM.WU.backup(withTok)}, null, 1);
     const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([data],{type:"application/json"})); a.download = "tankmix-backup-"+localDate()+".json"; document.body.appendChild(a); a.click(); a.remove();
   };
   $("btnImport").onclick = ()=>$("importFile").click();
@@ -1716,10 +1745,24 @@ function bindSettings(){
     rd.onload = ()=>{ try{ const d = JSON.parse(rd.result); if (d.app!=="tankmix-pro") throw 0;
       if (!confirm("Import "+(d.mixes||[]).length+" mixes, "+(d.library||[]).length+" products, "+(d.fields||[]).length+" saved fields, and "+(d.log||[]).length+" spray records? Items with the same ID are replaced.")) return;
       const merge = (a,b)=>{ const mp = new Map(a.map(x=>[x.id,x])); (b||[]).forEach(x=>mp.set(x.id,x)); return [...mp.values()]; };
-      S.mixes = merge(S.mixes, d.mixes); S.library = merge(S.library, d.library).map(normLib); S.log = merge(S.log, d.log); S.fields = merge(S.fields, d.fields);
+      const mergeLib = (a,b)=>{
+        const out = (a||[]).map(normLib);
+        (b||[]).forEach(raw=>{
+          const x = normLib(Object.assign({}, raw));
+          const byId = out.findIndex(y=>y.id===x.id);
+          if (byId>=0){ out[byId] = x; return; }
+          if (findLibraryDup(x, out)) return; // same EPA or custom name already present — keep existing, don't add a second
+          out.push(x);
+        });
+        return out;
+      };
+      S.mixes = merge(S.mixes, d.mixes); S.library = mergeLib(S.library, d.library); S.log = merge(S.log, d.log); S.fields = merge(S.fields, d.fields);
       persist("mixes"); persist("library"); persist("log"); persist("fields"); renderLog(); renderFields();
       const nt = d.tempest ? TM.TP.restore(d.tempest) : 0;
-      renderSaved(); renderLibrary(); renderProducts(); toast("Backup imported"+(nt?" · "+nt+" Tempest account"+(nt===1?"":"s")+" added":"")); } catch(err){ toast("That file isn't a TankMix backup"); } };
+      const nw = d.wu ? TM.WU.restore(d.wu) : 0;
+      renderSaved(); renderLibrary(); renderProducts();
+      const bits = []; if (nt) bits.push(nt+" Tempest account"+(nt===1?"":"s")); if (nw) bits.push(nw+" WU account"+(nw===1?"":"s"));
+      toast("Backup imported"+(bits.length?" · "+bits.join(" · ")+" added":"")); } catch(err){ toast("That file isn't a TankMix backup"); } };
     rd.readAsText(f); e.target.value=""; };
 }
 
@@ -2005,7 +2048,16 @@ async function showDetail(reg, targetEl){
   const qs = sel => out.querySelector(sel);
   const rec = () => { const form = qs("#dForm").value, dry = DRY.has(form); return { name:qs("#dName").value, epa:p.eparegno, form, unit: dry ? "oz" : "fl oz", priceUnit: dry ? "lb" : "gal", basis: defaultBasis() }; };
   qs("#dAdd").onclick = ()=>addProduct(rec());
-  qs("#dLib").onclick = ()=>saveToLibrary(rec());
+  const dLib = qs("#dLib");
+  const prevEpas = [reg, ...(p.transfer_history||[]).map(t=>t.previous_eparegno)].filter(Boolean);
+  if (findLibraryDup({epa:p.eparegno, prevEpas, name:names[0]})){
+    dLib.textContent = "In My products"; dLib.disabled = true; dLib.classList.add("alt");
+  } else {
+    dLib.onclick = ()=>{
+      const r = rec(); r.prevEpas = prevEpas;
+      if (saveToLibrary(r)){ dLib.textContent = "In My products"; dLib.disabled = true; }
+    };
+  }
 }
 TM.showDetail = showDetail;
 function sitePestBlock(p){
@@ -2364,28 +2416,32 @@ async function geocode(q){
 TM.geocode = geocode;
 function renderWx(){
   const el = $("wxOut"); if (!el) return;
-  const tp = WX.active().id==="tempest", wantTp = S.settings.wxSrc==="tempest";
+  const aid = WX.active().id, tp = aid==="tempest", wu = aid==="wunderground", pws = tp||wu;
+  const wantTp = S.settings.wxSrc==="tempest", wantWu = S.settings.wxSrc==="wunderground", wantPws = wantTp||wantWu;
+  const PWS = tp ? TP : wu ? WU : null, pwsTag = tp ? "Tempest" : wu ? "WU" : "";
   $("wxLoc").innerHTML = locLabel();
-  if ($("wxTpRow")){ // v2.5: Tempest shows a station picker instead of the place row
-    $("wxLocRow").hidden = tp; $("wxGeo").hidden = tp; $("wxGeo").style.display = tp ? "none" : ""; $("wxTpRow").hidden = !tp; $("wxBtns").classList.toggle("g2", !tp);
-    $("wxGet").innerHTML = tp ? "📡 Get station reading" : "🌤 Get local weather";
-    if (tp){ const E = TP.stations(), cur = TP.weatherStation(), dfl = TP.defStation();
+  if ($("wxTpRow")){ // v2.5/v2.7.1: Tempest or WU shows a station picker instead of the place row
+    $("wxLocRow").hidden = pws; $("wxGeo").hidden = pws; $("wxGeo").style.display = pws ? "none" : ""; $("wxTpRow").hidden = !pws; $("wxBtns").classList.toggle("g2", !pws);
+    $("wxGet").innerHTML = pws ? "📡 Get station reading" : "🌤 Get local weather";
+    const lab = $("wxTpRow").querySelector("label"); if (lab) lab.textContent = tp ? "Tempest station" : wu ? "WU station" : "Station";
+    if (pws && PWS){ const E = PWS.stations(), cur = PWS.weatherStation(), dfl = PWS.defStation();
       $("wxStation").innerHTML = E.map(s=>`<option value="${esc(s.id)}"${cur&&String(cur.id)===String(s.id)?" selected":""}>${esc(s.label)}${E.length>1&&dfl&&String(s.id)===String(dfl.id)?" (default)":""}${E.length>1?" · "+esc(s.acctName):""}</option>`).join("");
       $("wxStation").disabled = E.length < 2; }
   }
   const d = WXS.data;
-  let h = wantTp && !tp ? `<div class="flag caution">Tempest is the weather source, but no station is connected or turned on, so this uses Open-Meteo. <a href="#" data-go="set">Settings</a></div>` : "";
+  let h = wantPws && !pws ? `<div class="flag caution">${wantWu?"Weather Underground":"Tempest"} is the weather source, but no station is connected or turned on, so this uses Open-Meteo. <a href="#" data-go="set">Settings</a></div>` : "";
   h += WXS.err ? `<div class="flag caution">${esc(WXS.err)}</div>` : "";
-  if (WXS.busy) h += `<div style="margin-top:8px"><span class="spinner"></span> ${tp?"Getting station reading…":"Getting weather…"}</div>`;
+  if (WXS.busy) h += `<div style="margin-top:8px"><span class="spinner"></span> ${pws?"Getting station reading…":"Getting weather…"}</div>`;
   if (d && d.now){
-    const n = d.now, H = d.hours||[], T = d.tempest, cur = Object.assign({}, n, {pop: H[0] && H[0].pop, isDay: H[0] && H[0].isDay, t80F: H[0] && H[0].t80F});
-    // Tempest: the station's 2 m temp vs the model's 80 m temp would mix two sources, so use the model's own 80 m − 2 m difference
+    const n = d.now, H = d.hours||[], T = d.tempest || d.wu, srcKind = d.tempest ? "Tempest" : d.wu ? "WU" : null;
+    const cur = Object.assign({}, n, {pop: H[0] && H[0].pop, isDay: H[0] && H[0].isDay, t80F: H[0] && H[0].t80F});
+    // Personal station: use model's own 80 m − 2 m difference (don't mix station 2 m with model 80 m)
     if (T && H[0] && H[0].t80F!=null && H[0].tempF!=null) cur.t80F = n.tempF + (H[0].t80F - H[0].tempF);
     const ev = sprayFlags(cur, {nearDusk: nearDusk(n.at, d.sun)}), rs0 = rainSoon(H), rs = rs0 && !(rs0===H[0] && num(cur.pop)>=30) ? rs0 : null;
-    const age = (Date.now() - Date.parse(d.fetched))/60000, stale = T && TP.ageMin(T.ts) > TP.STALE_MIN;
+    const age = (Date.now() - Date.parse(d.fetched))/60000, stale = T && TP.ageMin(T.ts) > (d.wu ? WU.STALE_MIN : TP.STALE_MIN);
     const tile = (k, v, sub) => `<div><div class="k">${k}</div><div class="v">${v}</div>${sub?`<div class="tiny muted">${sub}</div>`:""}</div>`;
-    if (d.fallback) h += `<div class="flag caution">Tempest unavailable: ${esc(d.fallback)}. Showing Open-Meteo model data for the station's location instead.</div>`;
-    if (T) h += `<div class="small" style="margin-top:10px">📡 <b>${esc(T.label)}</b> <span class="muted">· ${esc(T.acct||"")}</span></div>`;
+    if (d.fallback) h += `<div class="flag caution">${esc(srcKind||"Station")} unavailable: ${esc(d.fallback)}. Showing Open-Meteo model data for the station's location instead.</div>`;
+    if (T) h += `<div class="small" style="margin-top:10px">📡 <b>${esc(T.label)}</b> <span class="badge">${esc(srcKind)}</span> <span class="muted">· ${esc(T.acct||"")}</span></div>`;
     h += `<div class="row" style="justify-content:space-between;margin:${T?"4px":"10px"} 0 6px"><b>Now · ${esc(hhmm(n.at))} ${esc(d.tz||"")}${T?` <span class="tiny ${stale?"warn":"muted"}" id="wxAge">· ${esc(TP.ago(T.ts))}</span>`:""}</b><span class="pill ${ev.level}">${{good:"Good",caution:"Caution",poor:"Poor"}[ev.level]}</span></div>
     ${stale?`<div class="flag caution">Stale reading: ${esc(T.label)} last reported ${esc(TP.ago(T.ts))}. The station may be offline. Check conditions at the field before you spray.</div>`:""}
     <div class="wxnow">
@@ -2395,7 +2451,8 @@ function renderWx(){
       ${tile("Humidity", fmt(n.rh,0)+"%")}
       ${tile("Rain (next 6 h)", H.length ? fmt(Math.max(...H.slice(0,7).map(x=>num(x.pop))),0)+"%" : "—")}
       <div><div class="k">Inversion</div><div class="v" style="font-size:16px">${ev.inversion?"Possible":H.length||!T?"Not indicated":"—"}</div></div>
-      ${T?tile("Delta T", n.deltaTC!=null?fmt(n.deltaTC,1)+"°C":"—", "2–8 is ideal")+tile("Lull", T.lullMph!=null?fmt(T.lullMph,0)+" mph":"—")+tile("Rain (last 1 h)", n.precipIn!=null?fmt(n.precipIn,2)+" in":"—"):""}
+      ${d.tempest?tile("Delta T", n.deltaTC!=null?fmt(n.deltaTC,1)+"°C":"—", "2–8 is ideal")+tile("Lull", T.lullMph!=null?fmt(T.lullMph,0)+" mph":"—")+tile("Rain (last 1 h)", n.precipIn!=null?fmt(n.precipIn,2)+" in":"—"):""}
+      ${d.wu?tile("Dew point", n.dewptF!=null?fmt(n.dewptF,0)+"°F":"—")+tile("Rain (today)", n.precipIn!=null?fmt(n.precipIn,2)+" in":"—"):""}
     </div>
     ${ev.flags.map(f=>`<div class="flag ${f.lvl}">${esc(f.msg)}</div>`).join("")}
     ${rs?`<div class="flag caution">Rain chance ${fmt(rs.pop,0)}% by ${esc(hhmm(rs.t))}. Check each product's rainfast interval on the label.</div>`:""}
@@ -2405,10 +2462,10 @@ function renderWx(){
     ${H.slice(0,13).map(x=>{ const e = sprayFlags(x, {nearDusk: nearDusk(x.t, d.sun)}); return `<tr><td>${esc(hhmm(x.t))}</td><td><b>${fmt(x.windMph,0)}</b></td><td>${fmt(x.gustMph,0)}</td><td>${compass(x.windDir)}</td><td>${fmt(x.tempF,0)}°</td><td>${fmt(x.rh,0)}%</td><td>${fmt(x.pop,0)}%</td><td><span class="pill ${e.level}" title="${esc(e.flags.map(f=>f.msg).join(" "))}">${{good:"OK",caution:"!",poor:"✗"}[e.level]}</span></td></tr>`; }).join("")}
     </table></div>`:`<p class="small muted">${esc(d.hoursErr||"No hourly outlook")}. Tap the button again to retry.</p>`}
     <p class="tiny muted" style="margin:8px 0 0">${T
-      ? `Now: live reading from Tempest station ${esc(T.label)} (${fmt(d.lat,3)}, ${fmt(d.lon,3)}), reported ${esc(TP.ago(T.ts))}, fetched ${age<1?"just now":fmt(age,0)+" min ago"}. Hourly outlook and inversion hint: Open-Meteo model forecast for the station's location. Times are local to the station (${esc(d.tz||"")}).`
+      ? `Now: live reading from ${esc(srcKind)} station ${esc(T.label)} (${fmt(d.lat,3)}, ${fmt(d.lon,3)}), reported ${esc(TP.ago(T.ts))}, fetched ${age<1?"just now":fmt(age,0)+" min ago"}. Hourly outlook and inversion hint: Open-Meteo model forecast for the station's location. Times are local to the station (${esc(d.tz||"")}).`
       : `${esc(d.source)} model data for ${esc(d.place||"")} (${fmt(d.lat,3)}, ${fmt(d.lon,3)}), fetched ${age<1?"just now":fmt(age,0)+" min ago"}. Times are local to that spot (${esc(d.tz||"")}). It's a forecast grid, not a reading at your field, so check wind at the field before you spray.`}
       <b>These are general guidelines. The product label's wind, temperature, droplet-size, and inversion rules take precedence.</b></p>`;
-  } else if (!WXS.busy && !WXS.err) h += `<p class="muted small" style="margin:10px 0 0">Tap <b>${tp?"Get station reading":"Get local weather"}</b> for current wind, temperature, humidity, and the next 12 hours.</p>`;
+  } else if (!WXS.busy && !WXS.err) h += `<p class="muted small" style="margin:10px 0 0">Tap <b>${pws?"Get station reading":"Get local weather"}</b> for current wind, temperature, humidity, and the next 12 hours.</p>`;
   el.innerHTML = h;
 }
 TM.renderWx = renderWx;
@@ -2764,18 +2821,17 @@ function openCustomForm(init, cfg){
   $("cpCat").onchange = e=>{ p.cat = e.target.value; autoForm(); };
   $("cpForm2").onchange = e=>{ p.form = e.target.value; formTouched = true; };
   $("cpCancel").onclick = closeDlg;
-  if (ed) $("cpDel").onclick = ()=>{ if (!confirm("Delete “"+ed.name+"” from My products?")) return; S.library = S.library.filter(x=>x!==ed); persist("library"); closeDlg(); renderLibrary(); renderProducts(); toast("Deleted"); };
+  if (ed) $("cpDel").onclick = ()=>{ if (!confirm("Delete “"+ed.name+"” from My products?")) return; S.library = S.library.filter(x=>x!==ed); persist("library"); closeDlg(); renderLibrary(); renderProducts(); if (typeof renderProdLk==="function") renderProdLk(); toast("Deleted"); };
   $("cpForm").onsubmit = e=>{ e.preventDefault();
     const name = $("cpName").value.trim(); if (!name){ toast("Enter a product name"); $("cpName").focus(); return; }
     const rec = { id: ed ? ed.id : uid(), name, epa: p.epa||"", custom: !p.epa, mfr:$("cpMfr").value.trim(), cat:$("cpCat").value, phys:p.phys, form:$("cpForm2").value,
       rate:$("cpRate").value, unit:p.unit, basis: p.unit==="% v/v" ? "" : (p.basis||"/A"), density:$("cpDens").value, price:$("cpPrice").value, priceUnit:$("cpPriceU").value,
       ai:$("cpAi").value.trim(), notes:$("cpNotes").value.trim(), updated:Date.now() };
     if (num(rec.price)>0 && kindOf(rec.priceUnit)!==kindOf(rec.unit) && !(num(rec.density)>0)) toast("Tip: add the density so the price converts between liquid and dry");
-    const dup = !ed && S.library.findIndex(x=>x.name.toLowerCase()===name.toLowerCase() && !x.epa && !rec.epa);
     if (ed) S.library[S.library.indexOf(ed)] = rec;
-    else if (dup>=0){ if (!confirm("“"+name+"” is already in My products. Replace it?")) return; rec.id = S.library[dup].id; S.library[dup] = rec; }
+    else if (findLibraryDup(rec)){ toast("Already in My products"); return; }
     else S.library.push(rec);
-    persist("library"); closeDlg(); renderLibrary();
+    persist("library"); closeDlg(); renderLibrary(); if (typeof renderProdLk==="function") renderProdLk();
     // keep any products in the open mix that came from this entry in step with it (name, type, tag; rates the user typed stay)
     S.mix.products.forEach(mp=>{ if (mp.libId===rec.id){ Object.assign(mp, {name:rec.name, form:rec.form, cat:rec.cat, mfr:rec.mfr, custom:rec.custom}); } });
     if (cfg.fromMix){ const mp = cfg.fromMix; Object.assign(mp, {libId:rec.id, custom:rec.custom, cat:rec.cat, mfr:rec.mfr, name:rec.name, form:rec.form, unit:rec.unit, basis:rec.basis, density:rec.density}); if (!num(mp.rate)) mp.rate = rec.rate; if (!num(mp.price)){ mp.price = rec.price; mp.priceUnit = rec.priceUnit; } }
@@ -2877,7 +2933,73 @@ function bindLibrary(){
   $("btnAddCustom").onclick = ()=>openCustomForm({});
   if ($("libQ")) $("libQ").oninput = e=>{ LIBF.q = e.target.value; renderLibrary(); };
   if ($("libF")) $("libF").onclick = e=>{ const v = e.target.dataset.v; if (v){ LIBF.f = v; renderLibrary(); } };
+  if ($("prodLkForm")) $("prodLkForm").onsubmit = e=>{ e.preventDefault(); $("prodLkQ").blur(); doProdLookup($("prodLkQ").value); };
 }
+
+/* ---- EPA lookup inside Products tab (save to My products without leaving) ---- */
+const PLK = { q:"", list:[], snap:false };
+async function doProdLookup(q){
+  q = (q||"").trim(); if (!q){ toast("Enter a product name or EPA Reg. No."); return; }
+  const out = $("prodLkOut"); if (!out) return;
+  if (REG_RE.test(q)){
+    closeProductDetail();
+    const list = $("prodLibPane"), det = $("prodDetailPane");
+    list.hidden = true; det.hidden = false;
+    det.innerHTML = `<button class="backbar" type="button" id="prodBack">‹ My products</button><div id="prodEpaHost"></div>`;
+    $("prodBack").onclick = ()=>{ closeProductDetail(); if (typeof renderProdLk==="function") renderProdLk(); };
+    await showDetail(q.toUpperCase(), $("prodEpaHost"));
+    return;
+  }
+  out.innerHTML = `<div class="small muted"><span class="spinner"></span> Searching EPA…</div>`;
+  let items = null;
+  if (liveState!=="file"){
+    try {
+      const url = APPRIL+"?q="+encodeURIComponent(JSON.stringify(aprilQuery(q, null, "", false)))+"&limit=100&offset=0";
+      const d = await getJSON(url, 45000); liveState = "live";
+      items = (d.items||[]).map(fromApril);
+    } catch(e){
+      try { items = ((await getJSON(EPA+"/ProductSearch/partialprodsearch/v2/riname/"+encodeURIComponent(q))).items||[]).map(x=>({eparegno:x.eparegno, productname:x.productname, product_status:x.product_status, alt:(x.altrntbrndnames||"").replace(/"/g,"")})); liveState="live"; }
+      catch(e2){ items = null; }
+    }
+  }
+  if (items===null){
+    const r = snapSearch(q, null, "");
+    PLK.snap = true;
+    PLK.list = r.map(p=>({eparegno:p.eparegno, productname:p.productname, product_status:p.product_status, alt:(p.altbrandnames||[]).map(a=>a.altbrandname).join("; ")}));
+  } else { PLK.snap = false; PLK.list = items; }
+  PLK.q = q;
+  renderProdLk();
+}
+TM.doProdLookup = doProdLookup;
+function renderProdLk(){
+  const out = $("prodLkOut"); if (!out) return;
+  if (!PLK.q && !PLK.list.length){ out.innerHTML = ""; return; }
+  const ql = PLK.q.toLowerCase().trim();
+  const title = r => codeLike(r.productname) && r.alt ? r.alt.split(";")[0].trim() : r.productname;
+  const rel = r => { if (!ql) return 0; const n = title(r).toLowerCase(); return n.startsWith(ql) ? 0 : new RegExp("\\b"+ql.replace(/[^a-z0-9 ]/g,"")).test(n) ? 1 : 2; };
+  const seen = new Set();
+  let list = PLK.list.filter(r=>{ const k=r.eparegno; if(seen.has(k)) return false; seen.add(k); return true; });
+  list.sort((a,b)=> (a.product_status==="Active"?0:1)-(b.product_status==="Active"?0:1) || rel(a)-rel(b) || regKind(a.eparegno)-regKind(b.eparegno) || a.productname.localeCompare(b.productname));
+  const act = list.filter(r=>r.product_status==="Active"), shown = act.length ? act : list;
+  const lim = 40;
+  out.innerHTML = `<div class="row" style="justify-content:space-between;margin-bottom:6px"><b class="small">${list.length} result${list.length===1?"":"s"} “${esc(PLK.q)}”${PLK.snap?" (snapshot)":""}</b></div>
+    ${shown.length?"":`<div class="empty small">No matches.</div>`}
+    ${shown.slice(0,lim).map(r=>{
+      const inLib = !!findLibraryDup({epa:r.eparegno, name:title(r)});
+      return `<div class="res"><button class="link" type="button" data-reg="${esc(r.eparegno)}"><div class="nm">${esc(title(r))}</div>
+        <div class="tiny muted">EPA ${esc(r.eparegno)}${title(r)!==r.productname?" · EPA name "+esc(r.productname):r.alt?" · aka "+esc(r.alt.slice(0,80)):""}</div></button>
+        ${inLib?`<span class="badge ok" title="Already saved">In My products</span>`:`<span class="badge ${r.product_status==="Active"?"ok":"off"}">${esc(r.product_status||"")}</span>`}</div>`;
+    }).join("")}
+    ${shown.length>lim?`<p class="tiny muted" style="margin:6px 0 0">Showing first ${lim}. Refine the search to narrow results.</p>`:""}`;
+  out.querySelectorAll("[data-reg]").forEach(b=>b.onclick=async ()=>{
+    const list = $("prodLibPane"), det = $("prodDetailPane");
+    list.hidden = true; det.hidden = false;
+    det.innerHTML = `<button class="backbar" type="button" id="prodBack">‹ My products</button><div id="prodEpaHost"></div>`;
+    $("prodBack").onclick = ()=>{ closeProductDetail(); renderProdLk(); };
+    await showDetail(b.dataset.reg, $("prodEpaHost"));
+  });
+}
+TM.renderProdLk = renderProdLk;
 
 /* ---- Quick add picker (Mix tab) ---- */
 const QA = { q:"", f:"all" };
@@ -3019,7 +3141,7 @@ function tpStationRow(s){
 }
 function renderTempest(){
   const el = $("tpPanel"); if (!el) return;
-  const on = S.settings.wxSrc==="tempest"; el.hidden = !on; $("wxSrcNote").hidden = on;
+  const on = S.settings.wxSrc==="tempest"; el.hidden = !on; $("wxSrcNote").hidden = on || S.settings.wxSrc==="wunderground";
   if (!on) return;
   const A = TP.st.accounts, all = TP.stations(true), showForm = !A.length || TP.ui.adding;
   let h = "";
@@ -3108,6 +3230,195 @@ TP.restore = b => { if (!b || typeof b!=="object") return 0; let n = 0;
   (b.accounts||[]).forEach(a=>{ if (a && a.token && !TP.st.accounts.some(x=>x.token===a.token)){ TP.st.accounts.push(a); n++; } });
   if (TP.st.def==null && b.def!=null) TP.st.def = b.def; TP.fixDefault(); TP.save(); renderTempest(); return n; };
 
+/* ---------- v2.7.1 Weather Underground (WU) personal weather stations ----------
+   Storage: tm.wu = { accounts:[{id,name,apiKey,stations:[{id,name,lat,lon,neighborhood}],added,checked}],
+                       prefs:{ [stationId]:{hidden,alias} }, def:stationId, sel:stationId, seen:{ [stationId]:lastObsEpoch } }
+   API keys live only in this key, on this device. They are sent only to api.weather.com (as apiKey=),
+   never put in settings, logs, CSV, print or share text, and only go into a backup when the user ticks the box.
+   Current obs use units=e (imperial °F, mph, in). CORS: api.weather.com returns Access-Control-Allow-Origin: *. */
+const WUAPI = "https://api.weather.com/v2/pws/observations/current";
+const WU = TM.WU = {
+  NEAR_MI: 10, STALE_MIN: 15,
+  st: Object.assign({accounts:[], prefs:{}, def:null, sel:null, seen:{}}, LS.get("wu", {})),
+  obs: {}, err: {},
+  ui: { adding:false, busy:false, msg:"", lvl:"" },
+  save(){ LS.set("wu", this.st); },
+  stations(all){ const out = [], seen = new Set();
+    this.st.accounts.forEach(a=>(a.stations||[]).forEach(s=>{ const k = String(s.id); if (seen.has(k)) return; seen.add(k);
+      const p = this.st.prefs[k]||{}; out.push(Object.assign({}, s, { acct:a.id, acctName:a.name, apiKey:a.apiKey, hidden:!!p.hidden, alias:p.alias||"", label:p.alias||s.name })); }));
+    return all ? out : out.filter(s=>!s.hidden); },
+  station(id){ return id==null ? null : this.stations(true).find(s=>String(s.id)===String(id)) || null; },
+  defStation(){ const E = this.stations(); return E.find(s=>String(s.id)===String(this.st.def)) || E[0] || null; },
+  weatherStation(){ const E = this.stations(); return E.find(s=>String(s.id)===String(this.st.sel)) || this.defStation(); },
+  connected(){ return this.stations().length > 0; },
+  pref(id){ const k = String(id); return this.st.prefs[k] = this.st.prefs[k] || {}; },
+  fixDefault(){ const E = this.stations(); if (!E.some(s=>String(s.id)===String(this.st.def))) this.st.def = E[0] ? E[0].id : null;
+    if (this.st.sel!=null && !E.some(s=>String(s.id)===String(this.st.sel))) this.st.sel = null; },
+  miles: TP.miles, nearest(p, list){ let best = null; (list||this.stations()).forEach(s=>{ if (!GEO.valid(s.lat, s.lon)) return; const mi = this.miles(p, s); if (!best || mi < best.mi) best = {st:s, mi}; }); return best; },
+  ageMin: TP.ageMin, ago: TP.ago, stale: o => !o || o.none || TP.ageMin(o.ts) > WU.STALE_MIN,
+  mask: TP.mask
+};
+class WUError extends Error { constructor(msg, kind){ super(msg); this.kind = kind; } }
+async function wuGet(stationId, apiKey, ms){
+  const url = WUAPI+"?stationId="+encodeURIComponent(stationId)+"&format=json&units=e&numericPrecision=decimal&apiKey="+encodeURIComponent(apiKey);
+  const ctl = new AbortController(), t = setTimeout(()=>ctl.abort(), ms||15000);
+  let r, d;
+  try { r = await fetch(url, {signal:ctl.signal, cache:"no-store", credentials:"omit", referrerPolicy:"no-referrer"});
+    d = await r.json().catch(()=>null); }
+  catch(e){ throw new WUError(navigator.onLine===false ? "No network connection" : e.name==="AbortError" ? "Weather Underground didn't answer in time" : "Couldn't reach Weather Underground (api.weather.com)", "net"); }
+  finally { clearTimeout(t); }
+  if (r.status===401 || r.status===403) throw new WUError("Weather Underground didn't accept this API key (401). Check the key at wunderground.com › Member › API Keys.", "auth");
+  if (r.status===204 || r.status===404) throw new WUError("No observations for station "+stationId+" (check the station ID, e.g. KXXCITY12)", "http");
+  if (r.status!==200) throw new WUError("Weather Underground returned an error (HTTP "+r.status+")", "http");
+  if (!d) throw new WUError("Weather Underground sent an unreadable reply", "http");
+  if (d.success===false || (d.errors && d.errors.length)){
+    const msg = (((d.errors||[])[0]||{}).error||{}).message || "API error";
+    throw new WUError(/apiKey|Invalid/i.test(msg) ? "API key not accepted. Create a free key at wunderground.com › Member › API Keys (PWS owners)." : msg, /apiKey|Invalid/i.test(msg)?"auth":"http");
+  }
+  return d;
+}
+WU.parseObs = d => { const o = (d && d.observations || [])[0]; if (!o) return null;
+  const u = o.imperial || {};
+  const ts = o.epoch != null ? +o.epoch : (o.obsTimeUtc ? Math.floor(Date.parse(o.obsTimeUtc)/1000) : null);
+  if (ts==null || !isFinite(ts)) return null;
+  return { ts, tempF:u.temp==null?null:+u.temp, rh:o.humidity==null?null:Math.round(+o.humidity),
+    windMph:u.windSpeed==null?null:+u.windSpeed, gustMph:u.windGust==null?null:+u.windGust, windDir:o.winddir==null?null:Math.round(+o.winddir),
+    precipIn:u.precipTotal==null?null:+u.precipTotal, dewptF:u.dewpt==null?null:+u.dewpt,
+    lat:o.lat!=null?+o.lat:null, lon:o.lon!=null?+o.lon:null, neighborhood:o.neighborhood||"", stationID:o.stationID||"",
+    local:o.obsTimeLocal||"" }; };
+WU.fetchObs = async st => {
+  try { const o = WU.parseObs(await wuGet(st.id, st.apiKey));
+    WU.obs[st.id] = o || {none:true}; delete WU.err[st.id];
+    if (o){ WU.st.seen = WU.st.seen||{}; WU.st.seen[st.id] = o.ts; // refresh lat/lon from live obs
+      if (GEO.valid(o.lat, o.lon)){ st.lat = o.lat; st.lon = o.lon; const a = WU.st.accounts.find(x=>x.id===st.acct); const row = a && (a.stations||[]).find(x=>String(x.id)===String(st.id)); if (row){ row.lat=o.lat; row.lon=o.lon; if (o.neighborhood && !row.neighborhood) row.neighborhood=o.neighborhood; } }
+      WU.save(); }
+    return o; }
+  catch(e){ WU.err[st.id] = e.message; throw e; } };
+WU.refreshAll = async () => { await Promise.all(WU.stations(true).map(s=>WU.fetchObs(s).catch(()=>null))); renderWu(); };
+WU.isoLocal = (ts, local) => { if (local && /^\d{4}-\d{2}-\d{2}/.test(local)) return local.replace(" ","T").slice(0,16);
+  return TP.isoLocal(ts, undefined); };
+
+async function wuWeather(st){
+  let o = null, why = "";
+  try { o = await WU.fetchObs(st); if (!o) why = st.label+" sent no recent readings (offline?)"; }
+  catch(e){ why = e.kind==="auth" ? "WU API key for "+st.acctName+" was rejected (401)" : e.message; }
+  const lat = (o && GEO.valid(o.lat, o.lon)) ? o.lat : st.lat, lon = (o && GEO.valid(o.lat, o.lon)) ? o.lon : st.lon;
+  const loc = {lat, lon, name:st.label+" (station location)"};
+  if (why || !GEO.valid(lat, lon)){ const d = GEO.valid(lat,lon) ? await WX.sources.openmeteo.fetch(loc) : await WX.sources.openmeteo.fetch(WXS.loc || loc);
+    d.fallback = why || "Station has no location yet"; d.stationId = st.id; return d; }
+  if (why){ const d = await WX.sources.openmeteo.fetch(loc); d.fallback = why; d.stationId = st.id; return d; }
+  let fc = null; try { fc = await WX.sources.openmeteo.fetch(loc); } catch(e){}
+  return { place:st.label, tz: (fc&&fc.tz)||"", source:"WU", lat, lon,
+    wu:{ id:st.id, label:st.label, acct:st.acctName, ts:o.ts, stale:WU.stale(o) },
+    now:{ at:WU.isoLocal(o.ts, o.local), tempF:o.tempF, rh:o.rh, windMph:o.windMph, gustMph:o.gustMph, windDir:o.windDir, precipIn:o.precipIn, dewptF:o.dewptF },
+    hours: fc ? fc.hours : [], sun: fc ? fc.sun : [], hoursErr: fc ? "" : "Couldn't get the Open-Meteo hourly outlook" };
+}
+TM.wuWeather = wuWeather;
+WX.register("wunderground", { label:"Weather Underground PWS station(s)", ready:true, needsLocation:false, usable:()=>WU.connected(),
+  async fetch(){ const st = WU.weatherStation(); if (!st) throw new Error("No Weather Underground station is turned on"); return wuWeather(st); } });
+
+function wuStationRow(s){
+  const o = WU.obs[s.id], e = WU.err[s.id], seen = (WU.st.seen||{})[s.id], isDef = WU.defStation() && String(WU.defStation().id)===String(s.id);
+  const last = o && !o.none ? (WU.stale(o) ? `<span class="warn">last reading ${esc(WU.ago(o.ts))} (stale)</span>` : `last reading ${esc(WU.ago(o.ts))}`)
+    : o && o.none ? `<span class="warn">no recent readings (offline?)</span>` : e ? `<span class="warn">${esc(e)}</span>` : seen ? `last reading ${esc(WU.ago(seen))}` : "checking…";
+  return `<div class="res tpst${s.hidden?" off":""}" data-id="${esc(s.id)}">
+    <label class="chk" title="Use this station"><input type="checkbox" data-act="show" aria-label="Use ${esc(s.label)}" ${s.hidden?"":"checked"}></label>
+    <div style="flex:1;min-width:0"><div class="nm">${esc(s.label)}${isDef&&!s.hidden?` <span class="badge ok">Default</span>`:""}${s.hidden?` <span class="badge off">Hidden</span>`:""} <span class="badge">WU</span></div>
+      <div class="tiny muted">${esc(s.acctName)} · ${esc(s.id)} · ${last}</div>
+      <div class="tiny muted">${s.alias?`WU name: ${esc(s.name)} · `:""}${GEO.valid(s.lat,s.lon)?fmt(s.lat,3)+", "+fmt(s.lon,3):(s.neighborhood?esc(s.neighborhood):"no location yet")}</div></div>
+    <button class="iconbtn" data-act="def" title="Make default" aria-label="Make ${esc(s.label)} the default" ${s.hidden?"disabled":""}>${isDef&&!s.hidden?"★":"☆"}</button>
+    <button class="iconbtn" data-act="ren" title="Rename" aria-label="Rename ${esc(s.label)}">✎</button></div>`;
+}
+function renderWu(){
+  const el = $("wuPanel"); if (!el) return;
+  const on = S.settings.wxSrc==="wunderground"; el.hidden = !on;
+  if ($("wxSrcNote")) $("wxSrcNote").hidden = S.settings.wxSrc==="tempest" || on;
+  if (!on) return;
+  const A = WU.st.accounts, all = WU.stations(true), showForm = !A.length || WU.ui.adding;
+  const lastKey = A.length ? A[A.length-1].apiKey : "";
+  let h = "";
+  if (all.length){
+    h += `<div class="subhd" style="margin-top:4px">Stations <span class="tiny muted" style="font-weight:600">· ✓ use · ★ default · WU</span></div><div id="wuStations">${all.map(wuStationRow).join("")}</div>
+      ${WU.connected()?"":`<div class="flag caution">All stations are hidden, so the app uses Open-Meteo. Tick a station to use it.</div>`}
+      <button class="btn alt sm" id="wuRefresh" style="margin:2px 0 10px">↻ Check readings</button>`;
+    h += `<div class="subhd">WU API keys / accounts</div>` + A.map(a=>`<div class="res" data-acct="${esc(a.id)}"><div style="flex:1;min-width:0"><div class="nm">${esc(a.name)}</div>
+      <div class="tiny muted">${(a.stations||[]).length} station${(a.stations||[]).length===1?"":"s"} · key ${esc(WU.mask(a.apiKey))}</div></div>
+      <button class="btn sm danger" data-act="rm">Remove</button></div>`).join("");
+  }
+  if (showForm){
+    h += `<div class="tpform"${A.length?' style="margin-top:6px"':""}>${A.length?`<div class="subhd">Add another WU station</div>`:`<div class="subhd">Connect a Weather Underground station</div>`}
+      <div class="grid">
+        <div><label class="f" for="wuName">Label (optional)</label><input id="wuName" type="text" autocomplete="off" placeholder="${A.length?"e.g. North farm":"e.g. Home PWS"}"></div>
+        <div><label class="f" for="wuSid">Station ID</label><input id="wuSid" type="text" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="e.g. KXXCITY12" style="font-family:ui-monospace,monospace"></div>
+        <div><label class="f" for="wuKey">API key</label>
+          <div class="inrow"><input id="wuKey" type="password" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Paste API key" value="${esc(lastKey)}" style="flex:1 1 auto;font-family:ui-monospace,monospace">
+          <button type="button" class="iconbtn" id="wuEye" aria-label="Show key" aria-pressed="false" title="Show / hide">👁</button></div>
+          ${lastKey?`<div class="tiny muted" style="margin-top:3px">Prefills your last key — change it if this station uses a different one.</div>`:""}</div>
+        <div class="grid ${A.length?"g2":""}"><button class="btn" id="wuGo">${WU.ui.busy?`<span class="spinner"></span> Connecting…`:"Connect"}</button>${A.length?`<button class="btn alt" id="wuCancel">Cancel</button>`:""}</div>
+      </div>
+      <p class="tiny muted" style="margin:8px 0 0">Free for personal weather station owners: create an API key at <b>wunderground.com</b> › <b>Member</b> › <b>API Keys</b> (<a href="https://www.wunderground.com/member/api-keys" target="_blank" rel="noopener">open page ↗</a>). Your station ID is on the station page (looks like <b>KXXCITY12</b>). The key stays in this browser and is sent only to api.weather.com. It is left out of backups unless you tick the box under Saved › Backup.</p></div>`;
+  } else h += `<button class="btn alt block" id="wuAdd" style="margin-top:4px">＋ Add another WU station</button>`;
+  h += `<div id="wuMsg" aria-live="polite">${WU.ui.msg?`<div class="flag ${WU.ui.lvl||"caution"}">${esc(WU.ui.msg)}</div>`:""}</div>`;
+  el.innerHTML = h;
+  if ($("wuEye")) $("wuEye").onclick = ()=>{ const i = $("wuKey"), show = i.type==="password"; i.type = show ? "text" : "password"; $("wuEye").setAttribute("aria-pressed", show); $("wuEye").textContent = show ? "🙈" : "👁"; };
+  if ($("wuGo")) $("wuGo").onclick = wuConnect;
+  if ($("wuSid")) $("wuSid").addEventListener("keydown", e=>{ if (e.key==="Enter"){ e.preventDefault(); wuConnect(); } });
+  if ($("wuKey")) $("wuKey").addEventListener("keydown", e=>{ if (e.key==="Enter"){ e.preventDefault(); wuConnect(); } });
+  if ($("wuCancel")) $("wuCancel").onclick = ()=>{ WU.ui.adding = false; WU.ui.msg = ""; renderWu(); };
+  if ($("wuAdd")) $("wuAdd").onclick = ()=>{ WU.ui.adding = true; WU.ui.msg = ""; renderWu(); $("wuSid").focus(); };
+  if ($("wuRefresh")) $("wuRefresh").onclick = ()=>{ WU.err = {}; WU.refreshAll(); };
+  el.querySelectorAll("[data-acct] [data-act=rm]").forEach(b=>b.onclick=()=>{ const a = WU.st.accounts.find(x=>x.id===b.closest("[data-acct]").dataset.acct); if (!a) return;
+    if (!confirm(`Remove "${a.name}" and its ${(a.stations||[]).length} WU station(s) from this device? The API key is deleted here.`)) return;
+    WU.st.accounts = WU.st.accounts.filter(x=>x.id!==a.id);
+    const left = new Set(WU.stations(true).map(s=>String(s.id))); Object.keys(WU.st.prefs).forEach(k=>{ if (!left.has(k)) delete WU.st.prefs[k]; });
+    Object.keys(WU.st.seen||{}).forEach(k=>{ if (!left.has(k)) delete WU.st.seen[k]; });
+    WU.fixDefault(); WU.save(); WU.ui.msg = `Removed "${a.name}".`; WU.ui.lvl = "good"; renderWu(); renderWx(); });
+  el.querySelectorAll("#wuStations .tpst").forEach(row=>{ const id = row.dataset.id, s = WU.station(id); if (!s) return;
+    row.querySelector("[data-act=show]").onchange = e=>{ WU.pref(id).hidden = !e.target.checked; WU.fixDefault(); WU.save(); renderWu(); renderWx(); };
+    row.querySelector("[data-act=def]").onclick = ()=>{ WU.st.def = s.id; WU.save(); renderWu(); renderWx(); toast(s.label+" is the default station"); };
+    row.querySelector("[data-act=ren]").onclick = ()=>{
+      openDlg("Rename station", `<div class="grid"><div><label class="f" for="wuAlias">Name shown in this app</label><input id="wuAlias" type="text" value="${esc(s.label)}" autocomplete="off"></div>
+        <p class="tiny muted" style="margin:0">Station ID: ${esc(s.id)}${s.neighborhood?" · "+esc(s.neighborhood):""}. This only changes the name here.</p>
+        <div class="grid g2"><button class="btn" id="wuAliasOk">Save</button><button class="btn alt" id="wuAliasReset">Use station name</button></div></div>`);
+      const done = v => { const p = WU.pref(id); if (v && v!==s.name) p.alias = v; else delete p.alias; WU.save(); closeDlg(); renderWu(); renderWx(); };
+      $("wuAliasOk").onclick = ()=>done($("wuAlias").value.trim()); $("wuAliasReset").onclick = ()=>done("");
+      $("wuAlias").select(); };
+  });
+}
+TM.renderWu = renderWu;
+async function wuConnect(){
+  const key = ($("wuKey").value||"").trim(), sid = ($("wuSid").value||"").trim().toUpperCase(), name = ($("wuName").value||"").trim();
+  const say = (m, l) => { WU.ui.msg = m; WU.ui.lvl = l||"caution"; $("wuMsg").innerHTML = m ? `<div class="flag ${WU.ui.lvl}">${esc(m)}</div>` : ""; };
+  if (!sid) { say("Enter the station ID (e.g. KXXCITY12)."); return $("wuSid").focus(); }
+  if (!/^[A-Z0-9_-]{3,20}$/i.test(sid)) return say("That doesn't look like a WU station ID. Use the ID from the station page (letters and numbers, like KXXCITY12).");
+  if (!key) { say("Paste your Weather Underground API key first."); return $("wuKey").focus(); }
+  if (key.length < 8) return say("That doesn't look like a WU API key.");
+  if (WU.stations(true).some(s=>String(s.id)===sid)) return say("Station "+sid+" is already connected.");
+  WU.ui.busy = true; $("wuGo").disabled = true; $("wuGo").innerHTML = `<span class="spinner"></span> Connecting…`; say("");
+  let o;
+  try { o = WU.parseObs(await wuGet(sid, key)); }
+  catch(e){ WU.ui.busy = false; renderWu(); $("wuKey").value = key; $("wuSid").value = sid; $("wuName").value = name;
+    return say(e.kind==="auth" ? "API key not accepted (401). Create or copy a key at wunderground.com › Member › API Keys." : e.kind==="net" ? e.message+". Check your connection and try again." : e.message, e.kind==="auth"?"poor":"caution"); }
+  WU.ui.busy = false;
+  if (!o){ renderWu(); $("wuKey").value = key; $("wuSid").value = sid; $("wuName").value = name; return say("The key works, but station "+sid+" has no current observation. Check the ID on the WU station page."); }
+  const st = { id:sid, name: name || o.neighborhood || sid, lat:o.lat, lon:o.lon, neighborhood:o.neighborhood||"" };
+  // reuse an existing account with the same API key, else create one
+  let a = WU.st.accounts.find(x=>x.apiKey===key);
+  if (!a){ a = { id:uid(), name: name || (WU.st.accounts.length ? "WU account "+(WU.st.accounts.length+1) : "My WU"), apiKey:key, stations:[], added:Date.now(), checked:Date.now() };
+    WU.st.accounts.push(a); }
+  a.stations = a.stations || []; a.stations.push(st); a.checked = Date.now();
+  WU.obs[sid] = o; WU.st.seen = WU.st.seen||{}; WU.st.seen[sid] = o.ts;
+  WU.fixDefault(); WU.save(); WU.ui.adding = false;
+  WU.ui.msg = `Connected ${st.name} (${sid}).`; WU.ui.lvl = "good";
+  renderWu(); renderWx();
+}
+WU.backup = withTokens => { const o = { prefs:clone(WU.st.prefs||{}), def:WU.st.def, sel:WU.st.sel };
+  if (withTokens) o.accounts = clone(WU.st.accounts); return o; };
+WU.restore = b => { if (!b || typeof b!=="object") return 0; let n = 0;
+  Object.entries(b.prefs||{}).forEach(([k,v])=>{ if (!WU.st.prefs[k]) WU.st.prefs[k] = v; });
+  (b.accounts||[]).forEach(a=>{ if (a && a.apiKey && !WU.st.accounts.some(x=>x.apiKey===a.apiKey)){ WU.st.accounts.push(a); n++; } });
+  if (WU.st.def==null && b.def!=null) WU.st.def = b.def; WU.fixDefault(); WU.save(); renderWu(); return n; };
+
 /* ---------- Spray log ---------- */
 const LOGF = { q:"", gf:"", editing:null };
 const nowLocal = () => { const d = new Date(); d.setMinutes(d.getMinutes()-d.getTimezoneOffset()); return d.toISOString().slice(0,16); };
@@ -3115,7 +3426,7 @@ function renderLogView(){
   $("v-wx").innerHTML = `
   <div class="card"><h2>Weather &amp; spray conditions</h2>
     <div class="small" style="margin-bottom:8px" id="wxLocRow">📍 <b id="wxLoc"></b> · <a href="#" id="wxChg">change</a></div>
-    <div id="wxTpRow" hidden style="margin-bottom:8px"><label class="f" for="wxStation">Tempest station</label><select id="wxStation"></select></div>
+    <div id="wxTpRow" hidden style="margin-bottom:8px"><label class="f" for="wxStation">Station</label><select id="wxStation"></select></div>
     <div class="grid g2" id="wxBtns"><button class="btn" id="wxGet">🌤 Get local weather</button><button class="btn alt" id="wxGeo">📍 My location</button></div>
     <div id="wxLocBox" hidden style="margin-top:10px">
       <form id="wxLocForm" class="inrow"><input id="wxLocQ" type="search" placeholder="ZIP, town, or lat, lon" enterkeyhint="search"><button class="btn sm" type="submit">Find</button></form>
@@ -3140,7 +3451,11 @@ function renderLogView(){
   $("wxGet").onclick = ()=>getWeather();
   $("wxLog").onclick = ()=>$("btnLogMix").onclick();
   $("wxGeo").onclick = ()=>geolocate();
-  $("wxStation").onchange = e=>{ TP.st.sel = e.target.value; TP.save(); getWeather(); };
+  $("wxStation").onchange = e=>{
+    if (S.settings.wxSrc==="wunderground"){ WU.st.sel = e.target.value; WU.save(); }
+    else { TP.st.sel = e.target.value; TP.save(); }
+    getWeather();
+  };
   $("wxChg").onclick = e=>{ e.preventDefault(); const b = $("wxLocBox"); b.hidden = !b.hidden; if (!b.hidden) $("wxLocQ").focus(); };
   $("wxLocForm").onsubmit = e=>{ e.preventDefault(); geocode($("wxLocQ").value); };
   $("logQ").oninput = e=>{ LOGF.q = e.target.value; renderLog(); };
@@ -3214,7 +3529,7 @@ function renderLogForm(){
     <div class="grid g2">${inp("lgApp","Applicator",r.applicator)}${inp("lgLic","License / cert. no.",r.license)}</div>
     <div class="fert" style="margin-top:0"><div class="row" style="justify-content:space-between"><span class="subhd" style="margin:0">Weather at application</span><button class="btn sm" id="lgWx">🌤 Fill from local weather</button></div>
       <div class="grid g3" style="margin-top:8px">${inp("lgT","Temp (°F)",w.tempF,"number")}${inp("lgRh","Humidity (%)",w.rh,"number")}${inp("lgW","Wind (mph)",w.windMph,"number")}${inp("lgDir","Wind from",w.windDirTxt||compass(w.windDir),"text",'placeholder="e.g. NW"')}${inp("lgG","Gusts (mph)",w.gustMph,"number")}${inp("lgSky","Sky / other",w.sky,"text",'placeholder="clear, dew…"')}</div>
-      <div id="lgWxSt" hidden style="margin-top:8px"><label class="f" for="lgWxStSel">Tempest station</label><select id="lgWxStSel"></select></div>
+      <div id="lgWxSt" hidden style="margin-top:8px"><label class="f" for="lgWxStSel">Station</label><select id="lgWxStSel"></select></div>
       <div id="lgWxMsg" aria-live="polite"></div>
       <div id="lgWxFind" hidden style="margin-top:8px"><label class="f" for="lgWxQ">Town, ZIP, or lat, lon</label>
         <div class="inrow"><input id="lgWxQ" type="search" placeholder="e.g. Ames, IA or 50010" enterkeyhint="search" autocomplete="off"><button type="button" class="btn sm" id="lgWxQGo">Find</button></div>
@@ -3260,35 +3575,40 @@ function renderLogForm(){
     const f = $("lgField").value.trim();
     return { lat:+(+lat).toFixed(5), lon:+(+lon).toFixed(5), name:(f ? f+" field pin" : "Field pin")+" ("+fmt(lat,3)+", "+fmt(lon,3)+")" }; };
   const showFind = why => { wxMsg(esc(why)+" Type a town, ZIP, or lat, lon below to get the weather here."); $("lgWxFind").hidden = false; $("lgWxQOut").innerHTML = ""; $("lgWxQ").focus(); };
-  /* v2.5 Tempest: the enabled station nearest the field pin (any account), else the default station.
-     Too far (> TP.NEAR_MI), stale (> TP.STALE_MIN) or unreadable -> Open-Meteo at the pin (or the station's spot) and say why.
+  /* v2.5/v2.7.1 Tempest or WU: the enabled station nearest the field pin (any account), else the default station.
+     Too far (> NEAR_MI), stale (> STALE_MIN) or unreadable -> Open-Meteo at the pin (or the station's spot) and say why.
      The station picker under the button lets you pick a station yourself (then distance and staleness are only noted). */
   const stSel = $("lgWxStSel");
-  const drawStations = (pickedId, used) => { const E = TP.stations(), P = pinLoc();
-    if (WX.active().id!=="tempest" || !E.length){ $("lgWxSt").hidden = true; return; }
-    const list = E.map(s=>({s, mi: P && GEO.valid(s.lat, s.lon) ? TP.miles(P, s) : null})).sort((a,b)=> a.mi==null||b.mi==null ? 0 : a.mi-b.mi);
+  const pwsOf = () => { const id = WX.active().id; return id==="tempest" ? {api:TP, tag:"Tempest", near:TP.NEAR_MI} : id==="wunderground" ? {api:WU, tag:"WU", near:WU.NEAR_MI} : null; };
+  const drawStations = (pickedId, used) => { const PWS = pwsOf(); if (!PWS){ $("lgWxSt").hidden = true; return; }
+    const E = PWS.api.stations(), P = pinLoc();
+    if (!E.length){ $("lgWxSt").hidden = true; return; }
+    const lab = $("lgWxSt").querySelector("label"); if (lab) lab.textContent = PWS.tag==="WU" ? "WU station" : "Tempest station";
+    const list = E.map(s=>({s, mi: P && GEO.valid(s.lat, s.lon) ? PWS.api.miles(P, s) : null})).sort((a,b)=> a.mi==null||b.mi==null ? 0 : a.mi-b.mi);
     stSel.innerHTML = `<option value="">Auto: ${used&&!pickedId ? esc(used.label)+(used.mi!=null?" · "+fmt(used.mi,1)+" mi":"")+(P?" (nearest)":" (default)") : P?"nearest to the field pin":"default station"}</option>` + list.map(x=>`<option value="${esc(x.s.id)}"${String(pickedId)===String(x.s.id)?" selected":""}>${esc(x.s.label)}${x.mi!=null?" · "+fmt(x.mi,1)+" mi":""}${E.length>1?" · "+esc(x.s.acctName):""}</option>`).join("");
     $("lgWxSt").hidden = false; };
-  const tpFill = async pickedId => {
-    const P = pinLoc(), picked = pickedId ? TP.station(pickedId) : null;
+  const pwsFill = async pickedId => {
+    const PWS = pwsOf(); if (!PWS) return false;
+    const API = PWS.api, tag = PWS.tag;
+    const P = pinLoc(), picked = pickedId ? API.station(pickedId) : null;
     let st = picked, mi = null, why = "", o = null;
-    if (!st){ if (P){ const n = TP.nearest(P); if (n){ st = n.st; mi = n.mi; } } if (!st) st = TP.defStation(); }
-    else if (P && GEO.valid(st.lat, st.lon)) mi = TP.miles(P, st);
+    if (!st){ if (P){ const n = API.nearest(P); if (n){ st = n.st; mi = n.mi; } } if (!st) st = API.defStation(); }
+    else if (P && GEO.valid(st.lat, st.lon)) mi = API.miles(P, st);
     if (!st) return false;
-    if (!picked && mi!=null && mi > TP.NEAR_MI) why = `The nearest Tempest station, ${st.label}, is ${fmt(mi,1)} mi from the field pin (more than ${TP.NEAR_MI} mi)`;
+    if (!picked && mi!=null && mi > PWS.near) why = `The nearest ${tag} station, ${st.label}, is ${fmt(mi,1)} mi from the field pin (more than ${PWS.near} mi)`;
     if (!why){ wxBusy("Reading "+st.label+"…");
-      try { o = await TP.fetchObs(st); if (!o) why = st.label+" sent no recent readings (offline?)"; }
-      catch(e){ why = st.label+": "+(e.kind==="auth"?"token for "+st.acctName+" was rejected (401)":e.message); }
+      try { o = await API.fetchObs(st); if (!o) why = st.label+" sent no recent readings (offline?)"; }
+      catch(e){ why = st.label+": "+(e.kind==="auth"?(tag==="WU"?"API key":"token")+" for "+st.acctName+" was rejected (401)":e.message); }
       wxBusy("");
-      if (!why && TP.stale(o) && !picked) why = st.label+" last reported "+TP.ago(o.ts)+" (stale)"; }
-    if (!why){ const tz = st.tz||o.tz, at = TP.isoLocal(o.ts, tz), d = { now:{ at, tempF:o.tempF, rh:o.rh, windMph:o.windMph, gustMph:o.gustMph, windDir:o.windDir }, tz: tz?tzName(tz,""):"", place:st.label, lat:st.lat, lon:st.lon, source:"Tempest" };
-      const src = "Tempest · "+st.label+(mi!=null?" ("+fmt(mi,1)+" mi)":P?"":" (default station)")+" · "+hhmm(at);
+      if (!why && API.stale(o) && !picked) why = st.label+" last reported "+API.ago(o.ts)+" (stale)"; }
+    if (!why){ const at = tag==="WU" ? WU.isoLocal(o.ts, o.local) : TP.isoLocal(o.ts, st.tz||o.tz);
+      const d = { now:{ at, tempF:o.tempF, rh:o.rh, windMph:o.windMph, gustMph:o.gustMph, windDir:o.windDir, dewptF:o.dewptF }, place:st.label, lat:st.lat, lon:st.lon, source:tag };
+      const src = tag+" · "+st.label+(mi!=null?" ("+fmt(mi,1)+" mi)":P?"":" (default station)")+" · "+hhmm(at);
       applyWx(d, { source:src, station:{ id:st.id, name:st.label, mi: mi==null?null:+mi.toFixed(2) }, obsTs:o.ts, deltaTC:o.deltaTC });
       drawStations(pickedId, {label:st.label, mi});
-      if (TP.stale(o)) wxMsg(esc(st.label+" last reported "+TP.ago(o.ts)+", so this reading is stale. Check conditions at the field."));
-      else if (picked && mi!=null && mi > TP.NEAR_MI) wxMsg(esc(st.label+" is "+fmt(mi,1)+" mi from the field pin. Conditions at the field may differ."));
+      if (API.stale(o)) wxMsg(esc(st.label+" last reported "+API.ago(o.ts)+", so this reading is stale. Check conditions at the field."));
+      else if (picked && mi!=null && mi > PWS.near) wxMsg(esc(st.label+" is "+fmt(mi,1)+" mi from the field pin. Conditions at the field may differ."));
       toast("Weather filled from "+st.label); return true; }
-    // fall back to Open-Meteo at the pin, or at the station's spot when there's no pin
     const loc = P || { lat:st.lat, lon:st.lon, name:st.label+" (station location)" };
     wxBusy("Getting weather…");
     try { const d = await WX.sources.openmeteo.fetch(loc); d.fetched = new Date().toISOString(); applyWx(d); wxBusy(""); drawStations(pickedId);
@@ -3296,12 +3616,12 @@ function renderLogForm(){
     catch(e){ wxBusy(""); drawStations(pickedId); wxMsg(esc(why)+". "+wxFail(e)); }
     return true;
   };
-  stSel.onchange = ()=>tpFill(stSel.value || null);
+  stSel.onchange = ()=>pwsFill(stSel.value || null);
   drawStations(r.wx && r.wx.station ? r.wx.station.id : null);
   wxBtn.onclick = async ()=>{
     const src = WX.active();
-    if (src.id==="tempest" && await tpFill(stSel.value || null)) return;
-    if (!src.needsLocation && src.id!=="tempest"){ wxBusy("Getting weather…"); const d = await getWeather(); wxBusy(""); return d ? applyWx(d) : wxMsg(esc(WXS.err||"No weather. Type the readings in.")); }
+    if ((src.id==="tempest" || src.id==="wunderground") && await pwsFill(stSel.value || null)) return;
+    if (!src.needsLocation && src.id!=="tempest" && src.id!=="wunderground"){ wxBusy("Getting weather…"); const d = await getWeather(); wxBusy(""); return d ? applyWx(d) : wxMsg(esc(WXS.err||"No weather. Type the readings in.")); }
     // 1) the field pin: weather at the field, even when the Weather tab is set somewhere else
     const P = pinLoc();
     if (P){ const c = LOGF.wxCache, key = P.lat.toFixed(3)+","+P.lon.toFixed(3);
@@ -3309,7 +3629,7 @@ function renderLogForm(){
       return fillAt(P, true); }
     // 2) the Weather tab's location
     const L = S.settings.wxLoc;
-    if (L){ let d = WXS.data; const fresh = d && !d.tempest && (Date.now()-Date.parse(d.fetched)) < 15*60000 && d.place===L.name;
+    if (L){ let d = WXS.data; const fresh = d && !d.tempest && !d.wu && (Date.now()-Date.parse(d.fetched)) < 15*60000 && d.place===L.name;
       if (!fresh){ wxBusy("Getting weather…"); d = await getWeather(); wxBusy(""); }
       return d ? applyWx(d) : wxMsg(esc(WXS.err||wxFail())); }
     // 3) device location, saved as the weather location
@@ -3449,9 +3769,12 @@ function init(){
   $("lkCrop").innerHTML = CROPS.map(([v,l])=>`<option value="${esc(v)}">${esc(l||v)}</option>`).join("");
   $("lkCrop").onchange = e=>{ $("lkCropTxt").hidden = e.target.value!=="*"; if (e.target.value==="*") $("lkCropTxt").focus(); };
   $("wxSrc").innerHTML = Object.values(WX.sources).map(s=>`<option value="${s.id}"${s.id===S.settings.wxSrc?" selected":""}${s.ready?"":" disabled"}>${esc(s.label)}</option>`).join("");
-  $("wxSrc").onchange = e=>{ S.settings.wxSrc = e.target.value; persist("settings"); TP.ui.msg = ""; renderTempest(); renderWx();
-    if (e.target.value==="tempest" && TP.st.accounts.length) TP.refreshAll(); };
-  renderTempest(); if (S.settings.wxSrc==="tempest" && TP.st.accounts.length) TP.refreshAll();
+  $("wxSrc").onchange = e=>{ S.settings.wxSrc = e.target.value; persist("settings"); TP.ui.msg = ""; WU.ui.msg = ""; renderTempest(); renderWu(); renderWx();
+    if (e.target.value==="tempest" && TP.st.accounts.length) TP.refreshAll();
+    if (e.target.value==="wunderground" && WU.st.accounts.length) WU.refreshAll(); };
+  renderTempest(); renderWu();
+  if (S.settings.wxSrc==="tempest" && TP.st.accounts.length) TP.refreshAll();
+  if (S.settings.wxSrc==="wunderground" && WU.st.accounts.length) WU.refreshAll();
   document.addEventListener("click", e=>{ const g = e.target.closest("[data-go]"); if (g){ e.preventDefault(); showTab(g.dataset.go); } });
   if (window.TM_PREVIEW) document.querySelector("header.top .title").insertAdjacentHTML("afterbegin", '<span class="pvw" style="margin:0 0 2px" title="Preview build: not installed, no offline cache">Preview</span>');
   $("btnLogMix").onclick = ()=>{ showTab("log"); LOGF.editing = blankLog(); renderLogForm(); setTimeout(()=>$("logFormCard").scrollIntoView({behavior:"smooth"}),60); };
