@@ -160,8 +160,9 @@ table.nz tr.nzx td{color:var(--muted)}
 .sites div{padding:3px 0;border-bottom:1px dotted var(--line)}
 .sites mark{background:#f4e04d;color:#111;border-radius:3px;padding:0 2px}
 details.sp{margin-top:10px} details.sp summary{font-weight:750;cursor:pointer;min-height:40px;display:flex;align-items:center}
-nav.tabs button{font-size:12px}
-@media(max-width:360px){nav.tabs button{font-size:11px}nav.tabs button .ic{font-size:20px}}
+nav.tabs button{font-size:11.5px}
+@media(max-width:380px){nav.tabs button{font-size:11px}nav.tabs button .ic{font-size:20px}}
+@media(max-width:340px){nav.tabs button{font-size:10px}}
 #printSheet,#pvBar{display:none}
 /* on-screen print view (works where window.print() doesn't, e.g. iPhone home-screen app) */
 body.pv{background:#fff;padding-bottom:0}
@@ -939,19 +940,47 @@ svg.leaflet-image-layer.leaflet-interactive path {
   <button class="btn alt block" id="btnLogMix" style="margin-bottom:12px">📝 Log this spray</button>
 </section>
 
-<section class="view" id="v-order" role="tabpanel">
-  <div class="card">
-    <h2>Mixing order</h2>
-    <div id="orderOut"></div>
-  </div>
-  <div class="card">
-    <h2>Jar test</h2>
-    <div class="row" style="margin-bottom:8px">
-      <label class="f" for="jarSize" style="margin:0">Jar carrier volume</label>
-      <select id="jarSize" style="width:auto"></select>
+<section class="view" id="v-tools" role="tabpanel">
+  <div class="card" style="padding:10px 12px">
+    <div class="seg" id="toolsSeg" style="width:100%;display:flex">
+      <button type="button" data-tools="cal" class="on" style="flex:1">Sprayer</button>
+      <button type="button" data-tools="order" style="flex:1">Order</button>
     </div>
-    <div id="jarOut"></div>
   </div>
+  <div id="v-cal"></div>
+  <div id="v-order" hidden>
+    <div class="card">
+      <h2>Mixing order</h2>
+      <div id="orderOut"></div>
+    </div>
+    <div class="card">
+      <h2>Jar test</h2>
+      <div class="row" style="margin-bottom:8px">
+        <label class="f" for="jarSize" style="margin:0">Jar carrier volume</label>
+        <select id="jarSize" style="width:auto"></select>
+      </div>
+      <div id="jarOut"></div>
+    </div>
+  </div>
+</section>
+
+<section class="view" id="v-products" role="tabpanel">
+  <div id="prodLibPane">
+    <div class="card">
+      <h2 style="justify-content:space-between">My products <span class="tiny muted" id="libCount" style="font-weight:650"></span></h2>
+      <p class="small muted" style="margin-top:0">Products here show up in <b>Quick add</b> on the Mix tab. Save EPA products from Lookup, or add your own products that have no EPA number. Tap a product to see its details.</p>
+      <input id="libQ" type="search" placeholder="Search My products" autocomplete="off" style="margin-bottom:8px">
+      <div class="seg sm" id="libF" style="margin:0 0 8px;width:100%;display:flex">
+        <button type="button" data-v="all" class="on" style="flex:1">All</button>
+        <button type="button" data-v="epa" style="flex:1">EPA</button>
+        <button type="button" data-v="custom" style="flex:1">Custom</button>
+      </div>
+      <div id="libList"></div>
+      <button class="btn block" id="btnAddCustom" style="margin-top:4px">＋ Add custom product</button>
+      <p class="tiny muted" style="margin:6px 0 0">Custom products: adjuvants, surfactants, crop oils, fertilizers, micronutrients, drift agents, state-only products, and so on.</p>
+    </div>
+  </div>
+  <div id="prodDetailPane" hidden></div>
 </section>
 
 <section class="view" id="v-lookup" role="tabpanel">
@@ -971,7 +1000,6 @@ svg.leaflet-image-layer.leaflet-interactive path {
   <div id="lkOut"></div>
 </section>
 
-<section class="view" id="v-cal" role="tabpanel"></section>
 <section class="view" id="v-log" role="tabpanel"></section>
 
 <section class="view" id="v-wx" role="tabpanel"></section>
@@ -979,7 +1007,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
 <section class="view" id="v-set" role="tabpanel">
   <div class="card"><h2>Settings</h2>
     <div class="menu">
-      <button class="mi" data-go="saved"><span class="mic">💾</span><span class="mit"><b>Saved</b><span class="tiny muted">Saved mixes · My products · backup &amp; import</span></span><span class="badge" id="setSavedN">0</span><span class="chev">›</span></button>
+      <button class="mi" data-go="saved"><span class="mic">💾</span><span class="mit"><b>Saved</b><span class="tiny muted">Saved mixes · backup &amp; import</span></span><span class="badge" id="setSavedN">0</span><span class="chev">›</span></button>
       <button class="mi" data-go="log"><span class="mic">📝</span><span class="mit"><b>Logs</b><span class="tiny muted">Spray records · CSV export · print</span></span><span class="badge" id="setLogN">0</span><span class="chev">›</span></button>
     </div>
   </div>
@@ -1009,11 +1037,9 @@ svg.leaflet-image-layer.leaflet-interactive path {
     <div id="savedList"></div>
   </div>
   <div class="card">
-    <h2 style="justify-content:space-between">My products <span class="tiny muted" id="libCount" style="font-weight:650"></span></h2>
-    <p class="small muted" style="margin-top:0">Products here show up in <b>Quick add</b> on the Mix tab. Save EPA products from Lookup, or add your own products that have no EPA number.</p>
-    <div id="libList"></div>
-    <button class="btn block" id="btnAddCustom" style="margin-top:4px">＋ Add custom product</button>
-    <p class="tiny muted" style="margin:6px 0 0">Custom products: adjuvants, surfactants, crop oils, fertilizers, micronutrients, drift agents, state-only products, and so on.</p>
+    <h2>My products</h2>
+    <p class="small muted" style="margin-top:0">My products (EPA and custom) now live under the <b>Products</b> tab.</p>
+    <button class="btn alt block" data-go="products" type="button">Open Products tab ›</button>
   </div>
   <div class="card">
     <h2>Backup &amp; import</h2>
@@ -1030,8 +1056,8 @@ svg.leaflet-image-layer.leaflet-interactive path {
 
 <nav class="tabs" role="tablist">
   <button role="tab" data-v="mix" aria-selected="true"><span class="ic">🧮</span>Mix</button>
-  <button role="tab" data-v="order" aria-selected="false"><span class="ic">🔢</span>Order</button>
-  <button role="tab" data-v="cal" aria-selected="false"><span class="ic">🎯</span>Sprayer</button>
+  <button role="tab" data-v="products" aria-selected="false"><span class="ic">📦</span>Products</button>
+  <button role="tab" data-v="tools" aria-selected="false"><span class="ic">🧰</span>Tools</button>
   <button role="tab" data-v="lookup" aria-selected="false"><span class="ic">🔎</span>Lookup</button>
   <button role="tab" data-v="wx" aria-selected="false"><span class="ic">🌤</span>Weather</button>
   <button role="tab" data-v="set" aria-selected="false" aria-label="Settings"><span class="ic">⚙️</span>Settings</button>
@@ -1060,13 +1086,13 @@ svg.leaflet-image-layer.leaflet-interactive path {
 <script>
 "use strict";
 /* =====================================================================
-   TankMix Pro v2.2 (single-file app). Sections:
+   TankMix Pro v2.7 (single-file app). Sections:
    1. Constants (units, formulation types, mixing-order groups)
    2. Pure calculation engine (TM.calc), unit-tested from node
    3. Storage (localStorage)
    4. UI: Mix, Order/Jar test, Lookup (EPA), Saved, Print
    ===================================================================== */
-const APP_VERSION = "2.6.0";
+const APP_VERSION = "2.7.0";
 const TM = window.TM = {};
 
 /* ---------- 1. Constants ---------- */
@@ -1591,17 +1617,29 @@ function saveToLibrary(p){
 /* ---------- Dialog & tabs ---------- */
 function openDlg(title, html){ if (TM.dlgCleanup){ try { TM.dlgCleanup(); } catch(e){} TM.dlgCleanup = null; } $("dlgT").textContent = title; $("dlgB").innerHTML = html; const d=$("dlg"); if (d.showModal) d.showModal(); else d.setAttribute("open",""); }
 function closeDlg(){ if (TM.dlgCleanup){ try { TM.dlgCleanup(); } catch(e){} TM.dlgCleanup = null; } const d=$("dlg"); if (d.close) d.close(); else d.removeAttribute("open"); }
-// Saved and Logs are sub-pages of Settings; the bottom bar highlights Settings for them
-const TAB_OF = { saved:"set", log:"set" };
+// Saved and Logs are sub-pages of Settings; Order and Sprayer live under Tools
+const TAB_OF = { saved:"set", log:"set", order:"tools", cal:"tools" };
+let toolsSub = "cal";
 function showTab(v){
   if (document.body.classList.contains("pv")) closePrintView(true);
-  document.querySelectorAll(".view").forEach(s=>s.classList.toggle("on", s.id==="v-"+v));
+  if (v==="tools") v = toolsSub || "cal";
+  if (v==="order" || v==="cal"){
+    toolsSub = v;
+    document.querySelectorAll(".view").forEach(s=>s.classList.toggle("on", s.id==="v-tools"));
+    const cal = $("v-cal"), ord = $("v-order");
+    if (cal) cal.hidden = v!=="cal";
+    if (ord) ord.hidden = v!=="order";
+    document.querySelectorAll("#toolsSeg [data-tools]").forEach(b=>b.classList.toggle("on", b.dataset.tools===v));
+  } else {
+    document.querySelectorAll(".view").forEach(s=>s.classList.toggle("on", s.id==="v-"+v));
+  }
   const nv = TAB_OF[v] || v;
   document.querySelectorAll("nav.tabs button").forEach(b=>b.setAttribute("aria-selected", b.dataset.v===nv));
   if (v==="set"){ const a=$("setSavedN"), b=$("setLogN"); if (a) a.textContent = S.mixes.length; if (b) b.textContent = S.log.length; }
   window.scrollTo(0,0);
 }
 TM.showTab = showTab;
+TM.toolsSub = () => toolsSub;
 
 /* ---------- Saved mixes ---------- */
 const clone = o => JSON.parse(JSON.stringify(o));
@@ -1914,8 +1952,10 @@ async function fetchDetail(reg){
   if (!item && dist){ item = all.find(p=>p.eparegno===base); if(item) note = "Distributor product "+reg+". Showing the base registration "+base+"."; }
   return {item, note, src:"snapshot"};
 }
-async function showDetail(reg){
-  const out = $("lkOut");
+async function showDetail(reg, targetEl){
+  const out = targetEl || $("lkOut");
+  if (targetEl && targetEl !== $("lkOut")){ const lk=$("lkOut"); if (lk && lk.querySelector("#dAdd")) lk.innerHTML = ""; }
+  else if (typeof closeProductDetail==="function") closeProductDetail();
   out.innerHTML = `<div class="card"><span class="spinner"></span> Loading EPA record ${esc(reg)}…</div>`;
   const {item:p, note, src} = await fetchDetail(reg);
   updateSrc();
@@ -1962,9 +2002,10 @@ async function showDetail(reg){
     </div>
   </div>`;
   bindSitePest(p);
-  const rec = () => { const form = $("dForm").value, dry = DRY.has(form); return { name:$("dName").value, epa:p.eparegno, form, unit: dry ? "oz" : "fl oz", priceUnit: dry ? "lb" : "gal", basis: defaultBasis() }; };
-  $("dAdd").onclick = ()=>addProduct(rec());
-  $("dLib").onclick = ()=>saveToLibrary(rec());
+  const qs = sel => out.querySelector(sel);
+  const rec = () => { const form = qs("#dForm").value, dry = DRY.has(form); return { name:qs("#dName").value, epa:p.eparegno, form, unit: dry ? "oz" : "fl oz", priceUnit: dry ? "lb" : "gal", basis: defaultBasis() }; };
+  qs("#dAdd").onclick = ()=>addProduct(rec());
+  qs("#dLib").onclick = ()=>saveToLibrary(rec());
 }
 TM.showDetail = showDetail;
 function sitePestBlock(p){
@@ -2744,35 +2785,98 @@ function openCustomForm(init, cfg){
 }
 TM.openCustomForm = openCustomForm;
 
-/* ---- My products list (Settings › Saved) ---- */
+/* ---- My products list (Products tab) ---- */
+const LIBF = { q:"", f:"all" };
 function libSub(p){
   const c = CCAT[p.cat];
   return [p.epa ? "EPA "+esc(p.epa) : "", p.mfr ? esc(p.mfr) : "", !p.epa && c ? esc(c.l) : esc((FORM[p.form]||FORM.OTHER).l),
     p.rate ? esc(p.rate)+" "+esc(p.unit)+(p.unit==="% v/v"?"":" "+esc(p.basis||"")) : "", p.price ? "$"+esc(p.price)+"/"+esc(p.priceUnit) : ""].filter(Boolean).join(" · ");
 }
+function closeProductDetail(){
+  const list = $("prodLibPane"), det = $("prodDetailPane");
+  if (!list || !det) return;
+  det.hidden = true; det.innerHTML = ""; list.hidden = false;
+}
 function renderLibrary(){
   const L = $("libList"); if (!L) return;
   const n = S.library.length, ne = S.library.filter(p=>p.epa).length;
-  $("libCount").textContent = n ? ne+" EPA · "+(n-ne)+" custom" : "";
+  if ($("libCount")) $("libCount").textContent = n ? ne+" EPA · "+(n-ne)+" custom" : "";
+  if ($("libQ") && $("libQ").value !== LIBF.q) $("libQ").value = LIBF.q;
+  document.querySelectorAll("#libF button").forEach(b=>b.classList.toggle("on", b.dataset.v===LIBF.f));
   if (!n){ L.innerHTML = `<div class="empty small">None yet. Add a custom product below, use ⋯ on a product in the mix, or “Save to My products” in Lookup.</div>`; return; }
-  const sorted = S.library.slice().sort((a,b)=>(a.epa?0:1)-(b.epa?0:1) || a.name.localeCompare(b.name));
-  L.innerHTML = sorted.map(p=>`<div class="res" data-id="${p.id}"><button class="link" data-act="add"><div class="nm">${tagHtml(p)} ${esc(p.name)}</div>
+  const q = LIBF.q.toLowerCase().trim(), hit = s => !q || s.toLowerCase().includes(q);
+  const sorted = S.library.filter(p=>(LIBF.f==="all" || (LIBF.f==="epa")===!!p.epa) && hit([p.name,p.epa,p.mfr,(CCAT[p.cat]||{}).l,p.ai,p.notes].join(" ")))
+    .sort((a,b)=>(a.epa?0:1)-(b.epa?0:1) || a.name.localeCompare(b.name));
+  if (!sorted.length){ L.innerHTML = `<div class="empty small">No matches.</div>`; return; }
+  L.innerHTML = sorted.map(p=>`<div class="res" data-id="${p.id}"><button class="link" data-act="open"><div class="nm">${tagHtml(p)} ${esc(p.name)}</div>
     <div class="tiny muted">${libSub(p)}</div></button>
     <button class="iconbtn" data-act="menu" title="Options" aria-label="Options">⋯</button></div>`).join("");
 }
+async function openLibraryDetail(p){
+  showTab("products");
+  const list = $("prodLibPane"), det = $("prodDetailPane"); if (!list || !det) return;
+  list.hidden = true; det.hidden = false; det.innerHTML = "";
+  const back = `<button class="backbar" type="button" id="prodBack">‹ My products</button>`;
+  if (p.epa){
+    det.innerHTML = back + `<div id="prodEpaHost"></div>`;
+    $("prodBack").onclick = closeProductDetail;
+    await showDetail(p.epa, $("prodEpaHost"));
+    // keep back bar; showDetail wiped host only
+    if (!$("prodBack")){ det.insertAdjacentHTML("afterbegin", back); $("prodBack").onclick = closeProductDetail; }
+    return;
+  }
+  const c = CCAT[p.cat], fl = (FORM[p.form]||FORM.OTHER).l;
+  const rows = [
+    ["Type", tagHtml(p)+" Custom (no EPA Reg. No.)"],
+    p.mfr ? ["Manufacturer", esc(p.mfr)] : null,
+    c ? ["Category", esc(c.l)] : null,
+    ["Formulation / mix order", esc(fl)],
+    p.phys ? ["Physical form", esc(p.phys==="dry"?"Dry":"Liquid")] : null,
+    p.rate ? ["Default rate", esc(p.rate)+" "+esc(p.unit)+(p.unit==="% v/v"?"":" "+esc(p.basis||""))] : null,
+    p.density ? ["Density", esc(p.density)+" lb/gal"] : null,
+    p.price ? ["Price", "$"+esc(p.price)+"/"+esc(p.priceUnit||"")] : null,
+    p.ai ? ["Active ingredients / analysis", esc(p.ai)] : null,
+    p.notes ? ["Notes", esc(p.notes)] : null,
+  ].filter(Boolean);
+  det.innerHTML = `${back}
+    <div class="card">
+      <h2 style="display:block">${esc(p.name)}</h2>
+      <div class="row" style="margin-bottom:10px">${tagHtml(p)}</div>
+      <table class="kv">${rows.map(([k,v])=>`<tr><th>${k}</th><td>${v}</td></tr>`).join("")}</table>
+      <p class="tiny muted">Custom product saved on this device. Rates and mixing order should still match the product label.</p>
+    </div>
+    <div class="card"><h2>Actions</h2>
+      <div class="grid">
+        <button class="btn" id="pdAdd" type="button">＋ Add to mix</button>
+        <button class="btn alt" id="pdEdit" type="button">Edit</button>
+        <button class="btn alt" id="pdDup" type="button">Duplicate</button>
+        <button class="btn danger" id="pdDel" type="button">Delete</button>
+      </div>
+    </div>`;
+  $("prodBack").onclick = closeProductDetail;
+  $("pdAdd").onclick = ()=>addProduct(libToProduct(p));
+  $("pdEdit").onclick = ()=>openCustomForm(p);
+  $("pdDup").onclick = ()=>{ const c2 = clone(p); delete c2.id; c2.name += " (copy)"; openCustomForm(c2); };
+  $("pdDel").onclick = ()=>{ if (!confirm("Remove “"+p.name+"” from My products?")) return; S.library = S.library.filter(x=>x.id!==p.id); persist("library"); closeProductDetail(); renderLibrary(); renderProducts(); toast("Deleted"); };
+}
+TM.openLibraryDetail = openLibraryDetail;
+TM.closeProductDetail = closeProductDetail;
 function bindLibrary(){
   $("libList").addEventListener("click", e=>{
     const b = e.target.closest("[data-act]"); if(!b) return;
     const id = b.closest(".res").dataset.id, p = S.library.find(x=>x.id===id); if (!p) return;
-    if (b.dataset.act==="add") return addProduct(libToProduct(p));
+    if (b.dataset.act==="open") return openLibraryDetail(p);
     openDlg(p.name, `<div class="small muted" style="margin-bottom:10px">${tagHtml(p)} ${libSub(p)}${p.ai?"<br>"+esc(p.ai):""}${p.notes?"<br>"+esc(p.notes):""}</div><div class="grid">
-      <button class="btn alt" id="lmAdd">＋ Add to mix</button><button class="btn alt" id="lmEdit">Edit</button><button class="btn alt" id="lmDup">Duplicate</button><button class="btn danger" id="lmDel">Delete</button></div>`);
+      <button class="btn alt" id="lmOpen">View details</button><button class="btn alt" id="lmAdd">＋ Add to mix</button><button class="btn alt" id="lmEdit">Edit</button><button class="btn alt" id="lmDup">Duplicate</button><button class="btn danger" id="lmDel">Delete</button></div>`);
+    $("lmOpen").onclick = ()=>{ closeDlg(); openLibraryDetail(p); };
     $("lmAdd").onclick = ()=>{ closeDlg(); addProduct(libToProduct(p)); };
     $("lmEdit").onclick = ()=>openCustomForm(p);
     $("lmDup").onclick = ()=>{ const c = clone(p); delete c.id; c.name += " (copy)"; openCustomForm(c); };
-    $("lmDel").onclick = ()=>{ if (!confirm("Remove “"+p.name+"” from My products?")) return; S.library = S.library.filter(x=>x.id!==id); persist("library"); closeDlg(); renderLibrary(); renderProducts(); toast("Deleted"); };
+    $("lmDel").onclick = ()=>{ if (!confirm("Remove “"+p.name+"” from My products?")) return; S.library = S.library.filter(x=>x.id!==id); persist("library"); closeDlg(); closeProductDetail(); renderLibrary(); renderProducts(); toast("Deleted"); };
   });
   $("btnAddCustom").onclick = ()=>openCustomForm({});
+  if ($("libQ")) $("libQ").oninput = e=>{ LIBF.q = e.target.value; renderLibrary(); };
+  if ($("libF")) $("libF").onclick = e=>{ const v = e.target.dataset.v; if (v){ LIBF.f = v; renderLibrary(); } };
 }
 
 /* ---- Quick add picker (Mix tab) ---- */
@@ -3338,6 +3442,7 @@ function exportCsv(){
 function init(){
   applyTheme(); renderSettings();
   document.querySelectorAll("nav.tabs button").forEach(b=>b.onclick=()=>showTab(b.dataset.v));
+  if ($("toolsSeg")) $("toolsSeg").onclick = e=>{ const t=e.target.closest("[data-tools]"); if (t) showTab(t.dataset.tools); };
   $("dlgX").onclick = closeDlg;
   $("dlg").addEventListener("click", e=>{ if (e.target.id==="dlg") closeDlg(); });
   $("lkForm").onsubmit = e=>{ e.preventDefault(); $("lkQ").blur(); $("lkPest").blur(); LK.inactive = false; renderResults.inactive = false; renderResults.limit=40; doLookup($("lkQ").value); };
