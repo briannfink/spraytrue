@@ -942,7 +942,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
       <button class="btn" id="btnAddProd">＋ Add product</button>
       <button class="btn alt" id="quickAdd" aria-haspopup="dialog">⚡ Quick add…</button>
     </div>
-    <p class="tiny muted" style="margin:10px 0 0">Quick add lists My products (<span class="tag epa">EPA</span>, <span class="tag wsda">WSDA</span>, and <span class="tag cu">Custom</span>) and generic adjuvants. Use <b>Lookup</b> to pull a product from EPA with its formulation prefilled. Always use the rate on the product label.</p>
+    <p class="tiny muted" style="margin:10px 0 0">Quick add lists My products (<span class="tag epa">EPA</span>, <span class="tag wsda">WSDA</span>, and <span class="tag cu">Custom</span>) and generic adjuvants. Use <b>Tools › Lookup</b> (or Add product above) to pull a product from EPA with its formulation prefilled. Always use the rate on the product label.</p>
   </div>
 
   <div class="card" id="carrierCard" aria-live="polite"></div>
@@ -952,9 +952,10 @@ svg.leaflet-image-layer.leaflet-interactive path {
 
 <section class="view" id="v-tools" role="tabpanel">
   <div class="card" style="padding:10px 12px">
-    <div class="seg" id="toolsSeg" style="width:100%;display:flex">
+    <div class="seg sm" id="toolsSeg" style="width:100%;display:flex">
       <button type="button" data-tools="cal" class="on" style="flex:1">Sprayer</button>
       <button type="button" data-tools="order" style="flex:1">Order</button>
+      <button type="button" data-tools="lookup" style="flex:1">Lookup</button>
     </div>
   </div>
   <div id="v-cal"></div>
@@ -972,13 +973,29 @@ svg.leaflet-image-layer.leaflet-interactive path {
       <div id="jarOut"></div>
     </div>
   </div>
+  <div id="v-lookup" hidden>
+    <div class="card">
+      <h2>Product lookup</h2>
+      <form id="lkForm" class="grid" autocomplete="off">
+        <input id="lkQ" type="search" placeholder="Product, active ingredient, EPA or WA Reg. No." enterkeyhint="search">
+        <div class="grid g2">
+          <div><label class="f" for="lkCrop">Crop / site</label><select id="lkCrop"></select></div>
+          <div><label class="f" for="lkPest">Pest (optional)</label><input id="lkPest" type="search" placeholder="e.g. waterhemp" enterkeyhint="search"></div>
+        </div>
+        <input id="lkCropTxt" type="search" placeholder="Type an EPA site, e.g. Ornamental Turf" hidden>
+        <button class="btn block" type="submit">Search EPA</button>
+      </form>
+      <div id="lkSrc" class="tiny muted" style="margin-top:8px"></div>
+    </div>
+    <div id="lkOut"></div>
+  </div>
 </section>
 
 <section class="view" id="v-products" role="tabpanel">
   <div id="prodLibPane">
     <div class="card">
       <h2>Add product</h2>
-      <p class="small muted" style="margin-top:0">Search EPA here to save products to My products without leaving this tab. The full Lookup tab still has crop and pest filters.</p>
+      <p class="small muted" style="margin-top:0">Search EPA here to save products to My products without leaving this tab. For crop/site and pest filters, use <b>Tools › Lookup</b>.</p>
       <form id="prodLkForm" class="grid" autocomplete="off">
         <input id="prodLkQ" type="search" placeholder="Product, active ingredient, EPA or WA Reg. No." enterkeyhint="search">
         <button class="btn block" type="submit">Search EPA</button>
@@ -1003,23 +1020,6 @@ svg.leaflet-image-layer.leaflet-interactive path {
   <div id="prodDetailPane" hidden></div>
 </section>
 
-<section class="view" id="v-lookup" role="tabpanel">
-  <div class="card">
-    <h2>Product lookup</h2>
-    <form id="lkForm" class="grid" autocomplete="off">
-      <input id="lkQ" type="search" placeholder="Product, active ingredient, EPA or WA Reg. No." enterkeyhint="search">
-      <div class="grid g2">
-        <div><label class="f" for="lkCrop">Crop / site</label><select id="lkCrop"></select></div>
-        <div><label class="f" for="lkPest">Pest (optional)</label><input id="lkPest" type="search" placeholder="e.g. waterhemp" enterkeyhint="search"></div>
-      </div>
-      <input id="lkCropTxt" type="search" placeholder="Type an EPA site, e.g. Ornamental Turf" hidden>
-      <button class="btn block" type="submit">Search EPA</button>
-    </form>
-    <div id="lkSrc" class="tiny muted" style="margin-top:8px"></div>
-  </div>
-  <div id="lkOut"></div>
-</section>
-
 <section class="view" id="v-log" role="tabpanel"></section>
 
 <section class="view" id="v-wx" role="tabpanel"></section>
@@ -1028,7 +1028,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
   <div class="card"><h2>Settings</h2>
     <div class="menu">
       <button class="mi" data-go="saved"><span class="mic">💾</span><span class="mit"><b>Saved</b><span class="tiny muted">Saved mixes · backup &amp; import</span></span><span class="badge" id="setSavedN">0</span><span class="chev">›</span></button>
-      <button class="mi" data-go="log"><span class="mic">📝</span><span class="mit"><b>Logs</b><span class="tiny muted">Spray records · CSV export · print</span></span><span class="badge" id="setLogN">0</span><span class="chev">›</span></button>
+      <button class="mi" data-go="log"><span class="mic">📝</span><span class="mit"><b>Logs</b><span class="tiny muted">Open the Logs tab · spray records · CSV · print</span></span><span class="badge" id="setLogN">0</span><span class="chev">›</span></button>
     </div>
   </div>
   <div class="card">
@@ -1079,7 +1079,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
   <button role="tab" data-v="mix" aria-selected="true"><span class="ic">🧮</span>Mix</button>
   <button role="tab" data-v="products" aria-selected="false"><span class="ic">📦</span>Products</button>
   <button role="tab" data-v="tools" aria-selected="false"><span class="ic">🧰</span>Tools</button>
-  <button role="tab" data-v="lookup" aria-selected="false"><span class="ic">🔎</span>Lookup</button>
+  <button role="tab" data-v="log" aria-selected="false"><span class="ic">📝</span>Logs</button>
   <button role="tab" data-v="wx" aria-selected="false"><span class="ic">🌤</span>Weather</button>
   <button role="tab" data-v="set" aria-selected="false" aria-label="Settings"><span class="ic">⚙️</span>Settings</button>
 </nav>
@@ -1113,7 +1113,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
    3. Storage (localStorage)
    4. UI: Mix, Order/Jar test, Lookup (EPA), Saved, Print
    ===================================================================== */
-const APP_VERSION = "2.9.2";
+const APP_VERSION = "2.10.0";
 const TM = window.TM = {};
 
 /* ---------- 1. Constants ---------- */
@@ -1664,18 +1664,16 @@ TM.saveToLibrary = saveToLibrary;
 /* ---------- Dialog & tabs ---------- */
 function openDlg(title, html){ if (TM.dlgCleanup){ try { TM.dlgCleanup(); } catch(e){} TM.dlgCleanup = null; } $("dlgT").textContent = title; $("dlgB").innerHTML = html; const d=$("dlg"); if (d.showModal) d.showModal(); else d.setAttribute("open",""); }
 function closeDlg(){ if (TM.dlgCleanup){ try { TM.dlgCleanup(); } catch(e){} TM.dlgCleanup = null; } const d=$("dlg"); if (d.close) d.close(); else d.removeAttribute("open"); }
-// Saved and Logs are sub-pages of Settings; Order and Sprayer live under Tools
-const TAB_OF = { saved:"set", log:"set", order:"tools", cal:"tools" };
+// Saved is a Settings sub-page; Sprayer / Order / Lookup live under Tools; Logs is its own tab
+const TAB_OF = { saved:"set", order:"tools", cal:"tools", lookup:"tools" };
 let toolsSub = "cal";
 function showTab(v){
   if (document.body.classList.contains("pv")) closePrintView(true);
   if (v==="tools") v = toolsSub || "cal";
-  if (v==="order" || v==="cal"){
+  if (v==="order" || v==="cal" || v==="lookup"){
     toolsSub = v;
     document.querySelectorAll(".view").forEach(s=>s.classList.toggle("on", s.id==="v-tools"));
-    const cal = $("v-cal"), ord = $("v-order");
-    if (cal) cal.hidden = v!=="cal";
-    if (ord) ord.hidden = v!=="order";
+    ["cal","order","lookup"].forEach(k=>{ const el = $("v-"+k); if (el) el.hidden = k!==v; });
     document.querySelectorAll("#toolsSeg [data-tools]").forEach(b=>b.classList.toggle("on", b.dataset.tools===v));
   } else {
     document.querySelectorAll(".view").forEach(s=>s.classList.toggle("on", s.id==="v-"+v));
@@ -3914,11 +3912,10 @@ function renderLogView(){
       <div id="wxGeoOut" style="margin-top:8px"></div>
     </div>
     <div id="wxOut"></div>
-    <button class="btn alt block" id="wxLog" style="margin-top:10px">📝 Log a spray (Settings › Logs)</button>
+    <button class="btn alt block" id="wxLog" style="margin-top:10px">📝 Log a spray</button>
   </div>
 `;
   $("v-log").innerHTML = `
-  <button class="backbar" data-go="set">‹ Settings</button>
   <div class="card" id="logFormCard"></div>
   <div class="card"><h2 style="justify-content:space-between">Spray records <span class="badge" id="logCount">0</span></h2>
     <input id="logQ" type="search" placeholder="Filter by grower, farm, field, crop, product…" value="${esc(LOGF.q)}">
