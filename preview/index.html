@@ -200,8 +200,8 @@ body.pv #printSheet{display:block;background:#fff;color:#000;padding:14px;max-wi
 #printSheet ol{margin:4pt 0 10pt 18pt;padding:0}
 /* v2.2: tags, quick add picker, field map */
 .tag{display:inline-block;font-size:10.5px;font-weight:850;letter-spacing:.04em;text-transform:uppercase;padding:1px 6px;border-radius:6px;vertical-align:1px;line-height:1.5}
-.tag.epa{background:#1d6b39;color:#fff}.tag.cu{background:#b86200;color:#fff}.tag.gen{background:var(--chip);color:var(--muted);border:1px solid var(--line)}
-[data-theme="dark"] .tag.cu{background:#f0a33a;color:#1b1000}[data-theme="dark"] .tag.epa{background:#3fa66a;color:#06120a}
+.tag.epa{background:#1d6b39;color:#fff}.tag.wsda{background:#0b6e99;color:#fff}.tag.cu{background:#b86200;color:#fff}.tag.gen{background:var(--chip);color:var(--muted);border:1px solid var(--line)}
+[data-theme="dark"] .tag.cu{background:#f0a33a;color:#1b1000}[data-theme="dark"] .tag.epa{background:#3fa66a;color:#06120a}[data-theme="dark"] .tag.wsda{background:#3aa0c8;color:#041018}
 .seg.sm button{min-height:36px;padding:0 12px;font-size:14px}
 .qi{display:flex;flex-direction:column;gap:2px;width:100%;text-align:left;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-bottom:6px;min-height:52px;color:var(--ink);font:inherit}
 .qi:active{background:var(--chip)} .qi .qn{font-weight:750}
@@ -932,7 +932,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
       <button class="btn" id="btnAddProd">＋ Add product</button>
       <button class="btn alt" id="quickAdd" aria-haspopup="dialog">⚡ Quick add…</button>
     </div>
-    <p class="tiny muted" style="margin:10px 0 0">Quick add lists My products (<span class="tag epa">EPA</span> and <span class="tag cu">Custom</span>) and generic adjuvants. Use <b>Lookup</b> to pull a product from EPA with its formulation prefilled. Always use the rate on the product label.</p>
+    <p class="tiny muted" style="margin:10px 0 0">Quick add lists My products (<span class="tag epa">EPA</span>, <span class="tag wsda">WSDA</span>, and <span class="tag cu">Custom</span>) and generic adjuvants. Use <b>Lookup</b> to pull a product from EPA with its formulation prefilled. Always use the rate on the product label.</p>
   </div>
 
   <div class="card" id="carrierCard" aria-live="polite"></div>
@@ -977,11 +977,12 @@ svg.leaflet-image-layer.leaflet-interactive path {
     </div>
     <div class="card">
       <h2 style="justify-content:space-between">My products <span class="tiny muted" id="libCount" style="font-weight:650"></span></h2>
-      <p class="small muted" style="margin-top:0">Products here show up in <b>Quick add</b> on the Mix tab. Save products above or from Lookup, or add your own products that have no EPA number. Tap a product to see its details.</p>
+      <p class="small muted" style="margin-top:0">Products here show up in <b>Quick add</b> on the Mix tab. Save products above or from Lookup (EPA or WSDA), or add your own custom products. Tap a product to see its details.</p>
       <input id="libQ" type="search" placeholder="Search My products" autocomplete="off" style="margin-bottom:8px">
       <div class="seg sm" id="libF" style="margin:0 0 8px;width:100%;display:flex">
         <button type="button" data-v="all" class="on" style="flex:1">All</button>
         <button type="button" data-v="epa" style="flex:1">EPA</button>
+        <button type="button" data-v="wsda" style="flex:1">WSDA</button>
         <button type="button" data-v="custom" style="flex:1">Custom</button>
       </div>
       <div id="libList"></div>
@@ -1096,13 +1097,13 @@ svg.leaflet-image-layer.leaflet-interactive path {
 <script>
 "use strict";
 /* =====================================================================
-   TankMix Pro v2.8.0 (single-file app). Sections:
+   TankMix Pro v2.8.1 (single-file app). Sections:
    1. Constants (units, formulation types, mixing-order groups)
    2. Pure calculation engine (TM.calc), unit-tested from node
    3. Storage (localStorage)
    4. UI: Mix, Order/Jar test, Lookup (EPA), Saved, Print
    ===================================================================== */
-const APP_VERSION = "2.8.0";
+const APP_VERSION = "2.8.1";
 const TM = window.TM = {};
 
 /* ---------- 1. Constants ---------- */
@@ -1403,7 +1404,8 @@ function productCard(p, i){
       <input data-f="name" value="${esc(p.name)}" placeholder="Product name" aria-label="Product name">
       <button class="iconbtn" data-act="menu" title="More options" aria-label="More options">⋯</button>
     </div>
-    ${p.epa?`<div class="tiny muted" style="margin:-2px 0 8px"><span class="tag epa">EPA</span> Reg. No. <b>${esc(p.epa)}</b> · <a href="#" data-act="epa">EPA info &amp; label</a></div>`
+    ${isWsdaLib(p)?`<div class="tiny muted" style="margin:-2px 0 8px"><span class="tag wsda">WSDA</span> WA ${esc(p.waReg||p.epa||"")}${p.mfr?" · "+esc(p.mfr):""}</div>`
+      : p.epa?`<div class="tiny muted" style="margin:-2px 0 8px"><span class="tag epa">EPA</span> Reg. No. <b>${esc(p.epa)}</b> · <a href="#" data-act="epa">EPA info &amp; label</a></div>`
       : p.custom && inLibrary(p) ? `<div class="tiny muted" style="margin:-2px 0 8px"><span class="tag cu">Custom</span> ${esc([p.mfr, (CCAT[p.cat]||{}).l].filter(Boolean).join(" · ")||"My product")}</div>`
       : `<div class="tiny muted" style="margin:-2px 0 8px"><span class="tag gen">No EPA no.</span> <a href="#" data-act="savelib">Save to My products</a></div>`}
     <div class="grid">
@@ -2138,7 +2140,7 @@ TM.mixText = () => mixText(TM.calc(S.mix));
 function renderPrint(R){
   const m = isMetric();
   const rows = S.mix.products.map((p,i)=>{ const o=R.products[i], a = b=>showAmt(b,o.kind,m).main;
-    return `<tr><td><b>${esc(p.name)}</b>${p.epa?"<br><small>EPA "+esc(p.epa)+"</small>":""}</td><td>${esc(p.form)}</td><td>${esc(p.rate)} ${esc(p.unit)} ${p.unit==="% v/v"?"":esc(p.basis)}</td><td>${a(o.perFull)}</td><td>${R.partialGal>0?a(o.perPartial):"—"}</td><td>${a(o.total)}</td><td>${o.cpa!=null?money(m?o.cpa*AC_HA:o.cpa):""}</td></tr>`; }).join("");
+    return `<tr><td><b>${esc(p.name)}</b>${p.epa?"<br><small>EPA "+esc(p.epa)+"</small>":(p.waReg||p.wsdaId||String(p.source||"").toLowerCase()==="wsda")?"<br><small>WSDA WA "+esc(p.waReg||"")+"</small>":""}</td><td>${esc(p.form)}</td><td>${esc(p.rate)} ${esc(p.unit)} ${p.unit==="% v/v"?"":esc(p.basis)}</td><td>${a(o.perFull)}</td><td>${R.partialGal>0?a(o.perPartial):"—"}</td><td>${a(o.total)}</td><td>${o.cpa!=null?money(m?o.cpa*AC_HA:o.cpa):""}</td></tr>`; }).join("");
   // v2.6 carrier rows (one per component: water, fertilizer) under the products
   const C = R.carrierAmt, cv = g => R.ok ? showVol1(g,m) : "—";
   const cf = cParts(R,"perFull",m), cpp = cParts(R,"perPartial",m), ct = cParts(R,"total",m);
@@ -2784,8 +2786,16 @@ const CUSTOM_CATS = [
 const CCAT = Object.fromEntries(CUSTOM_CATS.map(([k,l,fl,fd])=>[k,{k,l,fl,fd}]));
 TM.CUSTOM_CATS = CUSTOM_CATS;
 const LIQ_UNITS = ["fl oz","pt","qt","gal","mL","L","% v/v"], DRY_UNITS = ["oz","lb","g","kg"];
-const isCustomLib = p => !p.epa;
-const tagHtml = p => p.epa ? `<span class="tag epa">EPA</span>` : `<span class="tag cu">Custom</span>`;
+/* Derive kind at render time (no migration): WSDA if waReg/wsdaId/source=wsda; else EPA if epa; else Custom. */
+const isWsdaLib = p => !!(p && (p.waReg || p.wsdaId || String(p.source||"").toLowerCase()==="wsda"));
+const isEpaLib = p => !!(p && p.epa) && !isWsdaLib(p);
+const isCustomLib = p => !isEpaLib(p) && !isWsdaLib(p);
+const libKind = p => isWsdaLib(p) ? "wsda" : (p && p.epa ? "epa" : "custom");
+const tagHtml = p => {
+  const k = libKind(p);
+  return k==="wsda" ? `<span class="tag wsda">WSDA</span>` : k==="epa" ? `<span class="tag epa">EPA</span>` : `<span class="tag cu">Custom</span>`;
+};
+TM.isWsdaLib = isWsdaLib; TM.isEpaLib = isEpaLib; TM.isCustomLib = isCustomLib; TM.libKind = libKind; TM.tagHtml = tagHtml;
 const physOf = p => p.phys || (kindOf(p.unit)==="wt" || DRY.has(p.form) ? "dry" : "liquid");
 
 // Normalize saved data from v2.0/v2.1 in place. Only adds fields, never renames keys, so v2.1 (live) keeps reading the same storage.
@@ -2829,7 +2839,9 @@ function openCustomForm(init, cfg){
   const unitOpts = () => (p.phys==="dry" ? DRY_UNITS : LIQ_UNITS);
   if (!unitOpts().includes(p.unit)) p.unit = p.phys==="dry" ? "lb" : "fl oz";
   openDlg(ed ? "Edit product" : "Add custom product", `<form id="cpForm" class="grid" autocomplete="off">
-    ${p.epa?`<div class="small">${tagHtml(p)} EPA Reg. No. <b>${esc(p.epa)}</b></div>`:`<p class="small muted" style="margin:0">For products without an EPA Reg. No.: adjuvants, surfactants, crop oils, fertilizers, micronutrients, drift agents, state-only products, and so on. It shows up in <b>Quick add</b> on the Mix tab, tagged <span class="tag cu">Custom</span>.</p>`}
+    ${isWsdaLib(p)?`<div class="small">${tagHtml(p)} WA Reg. No. <b>${esc(p.waReg||p.epa||"—")}</b>${p.epa && p.epa!==p.waReg?" · EPA "+esc(p.epa):""}</div>`
+      : p.epa?`<div class="small">${tagHtml(p)} EPA Reg. No. <b>${esc(p.epa)}</b></div>`
+      :`<p class="small muted" style="margin:0">For products without an EPA Reg. No.: adjuvants, surfactants, crop oils, fertilizers, micronutrients, drift agents, state-only products, and so on. It shows up in <b>Quick add</b> on the Mix tab, tagged <span class="tag cu">Custom</span>.</p>`}
     <div><label class="f" for="cpName">Product name *</label><input id="cpName" value="${esc(p.name)}" placeholder="e.g. Brandt Smart Trio, Induce, ATS 12-0-0-26S" required></div>
     <div><label class="f" for="cpMfr">Manufacturer</label><input id="cpMfr" value="${esc(p.mfr||"")}" placeholder="optional"></div>
       <div><label class="f" for="cpCat">Type / category</label><select id="cpCat">${p.epa?`<option value="">EPA-registered pesticide</option>`:""}${CUSTOM_CATS.map(([k,l])=>`<option value="${k}"${k===p.cat?" selected":""}>${esc(l)}</option>`).join("")}</select></div>
@@ -2862,7 +2874,7 @@ function openCustomForm(init, cfg){
   if (ed) $("cpDel").onclick = ()=>{ if (!confirm("Delete “"+ed.name+"” from My products?")) return; S.library = S.library.filter(x=>x!==ed); persist("library"); closeDlg(); renderLibrary(); renderProducts(); if (typeof renderProdLk==="function") renderProdLk(); toast("Deleted"); };
   $("cpForm").onsubmit = e=>{ e.preventDefault();
     const name = $("cpName").value.trim(); if (!name){ toast("Enter a product name"); $("cpName").focus(); return; }
-    const rec = { id: ed ? ed.id : uid(), name, epa: p.epa||"", custom: !p.epa, mfr:$("cpMfr").value.trim(), cat:$("cpCat").value, phys:p.phys, form:$("cpForm2").value,
+    const rec = { id: ed ? ed.id : uid(), name, epa: p.epa||"", waReg: p.waReg||"", wsdaId: p.wsdaId, wsdaDb: p.wsdaDb, source: p.source||"", custom: !p.epa && !isWsdaLib(p), mfr:$("cpMfr").value.trim(), cat:$("cpCat").value, phys:p.phys, form:$("cpForm2").value,
       rate:$("cpRate").value, unit:p.unit, basis: p.unit==="% v/v" ? "" : (p.basis||"/A"), density:$("cpDens").value, price:$("cpPrice").value, priceUnit:$("cpPriceU").value,
       ai:$("cpAi").value.trim(), notes:$("cpNotes").value.trim(), updated:Date.now() };
     if (num(rec.price)>0 && kindOf(rec.priceUnit)!==kindOf(rec.unit) && !(num(rec.density)>0)) toast("Tip: add the density so the price converts between liquid and dry");
@@ -2882,9 +2894,14 @@ TM.openCustomForm = openCustomForm;
 /* ---- My products list (Products tab) ---- */
 const LIBF = { q:"", f:"all" };
 function libSub(p){
-  const c = CCAT[p.cat];
-  return [p.epa ? "EPA "+esc(p.epa) : "", p.mfr ? esc(p.mfr) : "", !p.epa && c ? esc(c.l) : esc((FORM[p.form]||FORM.OTHER).l),
-    p.rate ? esc(p.rate)+" "+esc(p.unit)+(p.unit==="% v/v"?"":" "+esc(p.basis||"")) : "", p.price ? "$"+esc(p.price)+"/"+esc(p.priceUnit) : ""].filter(Boolean).join(" · ");
+  const c = CCAT[p.cat], k = libKind(p);
+  return [
+    k==="wsda" ? "WA "+esc(p.waReg||p.epa||"") : (p.epa ? "EPA "+esc(p.epa) : ""),
+    p.mfr ? esc(p.mfr) : "",
+    k!=="epa" && c ? esc(c.l) : esc((FORM[p.form]||FORM.OTHER).l),
+    p.rate ? esc(p.rate)+" "+esc(p.unit)+(p.unit==="% v/v"?"":" "+esc(p.basis||"")) : "",
+    p.price ? "$"+esc(p.price)+"/"+esc(p.priceUnit) : ""
+  ].filter(Boolean).join(" · ");
 }
 function closeProductDetail(){
   const list = $("prodLibPane"), det = $("prodDetailPane");
@@ -2893,14 +2910,15 @@ function closeProductDetail(){
 }
 function renderLibrary(){
   const L = $("libList"); if (!L) return;
-  const n = S.library.length, ne = S.library.filter(p=>p.epa).length;
-  if ($("libCount")) $("libCount").textContent = n ? ne+" EPA · "+(n-ne)+" custom" : "";
+  const n = S.library.length, ne = S.library.filter(isEpaLib).length, nw = S.library.filter(isWsdaLib).length, nc = n-ne-nw;
+  if ($("libCount")) $("libCount").textContent = n ? [ne?ne+" EPA":"", nw?nw+" WSDA":"", nc?nc+" custom":""].filter(Boolean).join(" · ") : "";
   if ($("libQ") && $("libQ").value !== LIBF.q) $("libQ").value = LIBF.q;
   document.querySelectorAll("#libF button").forEach(b=>b.classList.toggle("on", b.dataset.v===LIBF.f));
   if (!n){ L.innerHTML = `<div class="empty small">None yet. Add a custom product below, use ⋯ on a product in the mix, or “Save to My products” in Lookup.</div>`; return; }
   const q = LIBF.q.toLowerCase().trim(), hit = s => !q || s.toLowerCase().includes(q);
-  const sorted = S.library.filter(p=>(LIBF.f==="all" || (LIBF.f==="epa")===!!p.epa) && hit([p.name,p.epa,p.mfr,(CCAT[p.cat]||{}).l,p.ai,p.notes].join(" ")))
-    .sort((a,b)=>(a.epa?0:1)-(b.epa?0:1) || a.name.localeCompare(b.name));
+  const matchF = p => LIBF.f==="all" || libKind(p)===LIBF.f;
+  const sorted = S.library.filter(p=>matchF(p) && hit([p.name,p.epa,p.waReg,p.mfr,(CCAT[p.cat]||{}).l,p.ai,p.notes].join(" ")))
+    .sort((a,b)=>{ const o={epa:0,wsda:1,custom:2}; return (o[libKind(a)]-o[libKind(b)]) || a.name.localeCompare(b.name); });
   if (!sorted.length){ L.innerHTML = `<div class="empty small">No matches.</div>`; return; }
   L.innerHTML = sorted.map(p=>`<div class="res" data-id="${p.id}"><button class="link" data-act="open"><div class="nm">${tagHtml(p)} ${esc(p.name)}</div>
     <div class="tiny muted">${libSub(p)}</div></button>
@@ -2911,12 +2929,32 @@ async function openLibraryDetail(p){
   const list = $("prodLibPane"), det = $("prodDetailPane"); if (!list || !det) return;
   list.hidden = true; det.hidden = false; det.innerHTML = "";
   const back = `<button class="backbar" type="button" id="prodBack">‹ My products</button>`;
+  // WSDA saved products: same registration detail as search, plus library actions
+  if (isWsdaLib(p)){
+    det.innerHTML = back + `<div id="prodWsdaHost"></div><div id="prodLibActions"></div>`;
+    $("prodBack").onclick = closeProductDetail;
+    await showLibraryWsdaDetail(p, $("prodWsdaHost"), $("prodLibActions"));
+    return;
+  }
   if (p.epa){
-    det.innerHTML = back + `<div id="prodEpaHost"></div>`;
+    det.innerHTML = back + `<div id="prodEpaHost"></div><div id="prodLibActions"></div>`;
     $("prodBack").onclick = closeProductDetail;
     await showDetail(p.epa, $("prodEpaHost"));
     // keep back bar; showDetail wiped host only
     if (!$("prodBack")){ det.insertAdjacentHTML("afterbegin", back); $("prodBack").onclick = closeProductDetail; }
+    // Library actions under the EPA detail (edit rates / delete this saved copy)
+    const ah = $("prodLibActions");
+    if (ah){
+      ah.innerHTML = `<div class="card"><h2>My products</h2>
+        <div class="grid">
+          <button class="btn" id="pdAdd" type="button">＋ Add to mix</button>
+          <button class="btn alt" id="pdEdit" type="button">Edit rates / notes</button>
+          <button class="btn danger" id="pdDel" type="button">Delete from My products</button>
+        </div></div>`;
+      $("pdAdd").onclick = ()=>addProduct(libToProduct(p));
+      $("pdEdit").onclick = ()=>openCustomForm(p);
+      $("pdDel").onclick = ()=>{ if (!confirm("Remove “"+p.name+"” from My products?")) return; S.library = S.library.filter(x=>x.id!==p.id); persist("library"); closeProductDetail(); renderLibrary(); renderProducts(); toast("Deleted"); };
+    }
     return;
   }
   const c = CCAT[p.cat], fl = (FORM[p.form]||FORM.OTHER).l;
@@ -2975,7 +3013,7 @@ function bindLibrary(){
 }
 
 /* ---- EPA lookup inside Products tab (save to My products without leaving) ---- */
-const PLK = { q:"", list:[], snap:false };
+const PLK = { q:"", list:[], snap:false }; TM.PLK = PLK;
 async function doProdLookup(q){
   q = (q||"").trim(); if (!q){ toast("Enter a product name or EPA / WA Reg. No."); return; }
   const out = $("prodLkOut"); if (!out) return;
@@ -3057,15 +3095,15 @@ TM.renderProdLk = renderProdLk;
 const QA = { q:"", f:"all" };
 function openQuickAdd(){
   openDlg("Quick add", `<input id="qaQ" type="search" placeholder="Search My products & adjuvants" value="${esc(QA.q)}" autocomplete="off">
-    <div class="seg sm" id="qaF" style="margin:8px 0 4px"><button type="button" data-v="all">All</button><button type="button" data-v="epa">EPA</button><button type="button" data-v="custom">Custom</button></div>
+    <div class="seg sm" id="qaF" style="margin:8px 0 4px"><button type="button" data-v="all">All</button><button type="button" data-v="epa">EPA</button><button type="button" data-v="wsda">WSDA</button><button type="button" data-v="custom">Custom</button></div>
     <div id="qaList"></div>
     <div class="grid g2" style="margin-top:10px"><button class="btn alt sm" id="qaNew">＋ New custom product</button><button class="btn alt sm" id="qaEpa">🔎 Find EPA product</button></div>`);
   const draw = () => {
     const q = QA.q.toLowerCase().trim(), hit = s => !q || s.toLowerCase().includes(q);
     document.querySelectorAll("#qaF button").forEach(b=>b.classList.toggle("on", b.dataset.v===QA.f));
-    const mine = S.library.filter(p=>(QA.f==="all" || (QA.f==="epa") === !!p.epa) && hit([p.name, p.epa, p.mfr, (CCAT[p.cat]||{}).l, p.ai].join(" ")))
+    const mine = S.library.filter(p=>(QA.f==="all" || libKind(p)===QA.f) && hit([p.name, p.epa, p.waReg, p.mfr, (CCAT[p.cat]||{}).l, p.ai].join(" ")))
       .sort((a,b)=>a.name.localeCompare(b.name));
-    const gen = QA.f==="epa" ? [] : PRESETS.map((p,i)=>[p,i]).filter(([p])=>hit(p.name));
+    const gen = (QA.f==="epa" || QA.f==="wsda") ? [] : PRESETS.map((p,i)=>[p,i]).filter(([p])=>hit(p.name));
     const item = (k, tag, name, sub) => `<button type="button" class="qi" data-k="${k}"><span class="qn">${tag} ${esc(name)}</span><span class="tiny muted">${sub}</span></button>`;
     $("qaList").innerHTML =
       `<div class="subhd" style="margin:8px 0 4px">My products</div>` + (mine.length ? mine.map(p=>item("l"+p.id, tagHtml(p), p.name, libSub(p)||"no default rate")).join("")
@@ -3669,6 +3707,96 @@ function saveWsdaToLibrary(rec){
   toast("Saved to My products"); return true;
 }
 TM.saveWsdaToLibrary = saveWsdaToLibrary;
+
+/** Resolve a bundled WSDA catalog row for a saved library entry (by wsdaId or waReg). */
+async function wsdaResolveFromLib(lib){
+  try { await wsdaLoad(); } catch(e){ return null; }
+  if (!WSDA.ready() || !lib) return null;
+  if (lib.wsdaId != null){
+    const id = +lib.wsdaId;
+    if (lib.wsdaDb === "waltr" && WSDA.byFertId){ const h = WSDA.byFertId.get(id); if (h) return h; }
+    const h = WSDA.byId && WSDA.byId.get(id); if (h) return h;
+    // fall through: id may be in the other map
+    const a = WSDA.byId && WSDA.byId.get(id); if (a) return a;
+    const b = WSDA.byFertId && WSDA.byFertId.get(id); if (b) return b;
+  }
+  const wa = wsdaNormReg(lib.waReg || lib.epa || "");
+  if (wa && WSDA.byWa && WSDA.byWa.get(wa)) return WSDA.byWa.get(wa);
+  // Section 3 style: look up by EPA map
+  if (wa && WSDA.byEpa){
+    const list = WSDA.byEpa.get(normEpa(wa));
+    if (list && list.length) return list[0];
+  }
+  // last resort: scan
+  return (WSDA.data.products||[]).find(x => wsdaNormReg(x.reg)===wa) || null;
+}
+TM.wsdaResolveFromLib = wsdaResolveFromLib;
+
+/** WSDA registration detail for a saved My-products entry, plus library actions. */
+async function showLibraryWsdaDetail(lib, host, actionsHost){
+  const out = host || $("lkOut");
+  out.innerHTML = `<div class="card"><span class="spinner"></span> Loading WSDA details…</div>`;
+  const cat = await wsdaResolveFromLib(lib);
+  // Merge catalog fields over the saved record (catalog wins for registration facts; library keeps rates/notes)
+  const p = Object.assign({}, cat || {}, {
+    name: (cat && cat.name) || lib.name,
+    reg: (cat && cat.reg) || lib.waReg || lib.epa || "",
+    company: (cat && cat.company) || lib.mfr || "",
+    ai: (cat && cat.ai) || lib.ai || "",
+    id: (cat && cat.id) || lib.wsdaId,
+    db: (cat && cat.db) || lib.wsdaDb || "waprs",
+    type: (cat && cat.type) || lib.notes || "",
+    kind: (cat && cat.kind) || "adjuvant",
+    label: cat && cat.label || "",
+    status: cat && cat.status || "",
+    exp: cat && cat.exp || "",
+    signal: cat && cat.signal || "",
+    user: cat && cat.user || "",
+    rup: cat && cat.rup || "",
+    npk: cat && cat.npk || ""
+  });
+  const waLabel = p.label ? `<a href="${esc(p.label)}" target="_blank" rel="noopener">View WA label (PDF) ↗</a>` : "";
+  const info = p.id != null
+    ? `<a href="${esc(WSDA.infoUrl(p))}" target="_blank" rel="noopener">Open WSDA registration page ↗</a>`
+    : `<a href="https://fortress.wa.gov/agr/pisces/WSDASearch/Default" target="_blank" rel="noopener">WSDA search ↗</a>`;
+  const missing = !cat ? `<div class="flag caution">Couldn't match this saved product in the bundled WSDA index${WSDA.err?": "+esc(WSDA.err):""}. Showing what was saved on this device.</div>` : "";
+  out.innerHTML = `${missing}<div class="card">
+    <div class="row" style="justify-content:space-between;gap:8px;flex-wrap:wrap"><h2 style="margin:0">${esc(p.name)}</h2>${tagHtml(lib)}</div>
+    <table class="kv">
+      <tr><th>Product type</th><td>${esc(p.type||p.kind||"—")}</td></tr>
+      <tr><th>WA Reg. No.</th><td><b>${esc(p.reg||lib.waReg||"—")}</b></td></tr>
+      ${lib.epa && lib.epa!==(p.reg||lib.waReg)?`<tr><th>EPA Reg. No.</th><td><b>${esc(lib.epa)}</b></td></tr>`:""}
+      <tr><th>Registrant</th><td>${esc(p.company||"—")}</td></tr>
+      <tr><th>Status</th><td>${esc(p.status||"—")}${p.exp?" · exp "+esc(p.exp):""}</td></tr>
+      ${p.signal?`<tr><th>Signal word</th><td>${esc(p.signal)}</td></tr>`:""}
+      ${p.user?`<tr><th>Intended user</th><td>${esc(p.user)}</td></tr>`:""}
+      ${p.rup?`<tr><th>Restrictions</th><td>${esc(p.rup)}</td></tr>`:""}
+      ${p.ai?`<tr><th>Active / functioning agents</th><td>${esc(p.ai)}</td></tr>`:""}
+      ${p.npk?`<tr><th>N-P-K</th><td>${esc(p.npk)}</td></tr>`:""}
+      <tr><th>Labels</th><td>${waLabel||"—"}${waLabel?" · ":""}${info}</td></tr>
+      ${lib.rate?`<tr><th>Your default rate</th><td>${esc(lib.rate)} ${esc(lib.unit||"")}${lib.unit==="% v/v"?"":" "+esc(lib.basis||"")}</td></tr>`:""}
+      ${lib.price?`<tr><th>Your price</th><td>$${esc(lib.price)}/${esc(lib.priceUnit||"")}</td></tr>`:""}
+      ${lib.notes?`<tr><th>Notes</th><td>${esc(lib.notes)}</td></tr>`:""}
+    </table>
+    <p class="tiny muted">Source: Washington State Dept of Agriculture registration search${WSDA.data&&WSDA.data.fetched?" · dataset "+esc(WSDA.data.fetched.slice(0,10)):""}. Rates come from your My products entry — confirm against the label.</p>
+  </div>`;
+  if (actionsHost){
+    actionsHost.innerHTML = `<div class="card"><h2>Actions</h2>
+      <div class="grid">
+        <button class="btn" id="pdAdd" type="button">＋ Add to mix</button>
+        <button class="btn alt" id="pdEdit" type="button">Edit rates / notes</button>
+        <button class="btn alt" id="pdDup" type="button">Duplicate</button>
+        <button class="btn danger" id="pdDel" type="button">Delete</button>
+      </div>
+    </div>`;
+    $("pdAdd").onclick = ()=>addProduct(libToProduct(lib));
+    $("pdEdit").onclick = ()=>openCustomForm(lib);
+    $("pdDup").onclick = ()=>{ const c2 = clone(lib); delete c2.id; c2.name += " (copy)"; openCustomForm(c2); };
+    $("pdDel").onclick = ()=>{ if (!confirm("Remove “"+lib.name+"” from My products?")) return; S.library = S.library.filter(x=>x.id!==lib.id); persist("library"); closeProductDetail(); renderLibrary(); renderProducts(); toast("Deleted"); };
+  }
+}
+TM.showLibraryWsdaDetail = showLibraryWsdaDetail;
+
 
 async function openUnifiedResult(r, host){
   if (r.wsda && r.wsdaOnly){ showWsdaDetail(r.wsda, host); return; }
