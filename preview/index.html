@@ -894,6 +894,11 @@ svg.leaflet-image-layer.leaflet-interactive path {
 
 <main>
 <section class="view on" id="v-mix" role="tabpanel">
+  <div class="card" id="mixJobsCard">
+    <h2 style="justify-content:space-between;margin-bottom:8px">Saved jobs <span class="badge" id="mixJobsN">0</span></h2>
+    <button class="btn alt block" id="btnOpenSavedMix" type="button" aria-haspopup="dialog">📂 Open a saved mix…</button>
+    <p class="tiny muted" id="mixJobsHint" style="margin:8px 0 0">Saved mixes also stay under Settings › Saved.</p>
+  </div>
   <div class="card">
     <h2 style="justify-content:space-between">Sprayer &amp; field <button class="btn danger sm" id="btnClearMix" type="button" aria-label="Clear the form and start a new mix">✕ Clear</button></h2>
     <div class="grid">
@@ -1103,7 +1108,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
    3. Storage (localStorage)
    4. UI: Mix, Order/Jar test, Lookup (EPA), Saved, Print
    ===================================================================== */
-const APP_VERSION = "2.8.1";
+const APP_VERSION = "2.9.0";
 const TM = window.TM = {};
 
 /* ---------- 1. Constants ---------- */
@@ -1693,14 +1698,84 @@ function saveMix(asCopy){
   persist("mixes"); saveCurrent(); $("mixName").value = S.mix.name; renderSaved(); renderAll(); toast("Saved “"+S.mix.name+"”");
 }
 TM.saveMix = saveMix;
-function openMix(r){ S.mix = clone(r.mix); saveCurrent(); loadMixIntoForm(); renderSaved(); showTab("mix"); toast("Opened “"+r.name+"”"); }
+/* True when the Mix draft would be lost if replaced (unsaved edits vs saved copy, or a non-empty untitled draft). */
+function mixDraftDirty(){
+  const m = S.mix; if (!m) return false;
+  if (m.id){
+    const r = S.mixes.find(x=>x.id===m.id);
+    if (r) try { return JSON.stringify(m) !== JSON.stringify(r.mix); } catch(e){ return true; }
+  }
+  if ((m.products||[]).length) return true;
+  if ((m.name||"").trim()) return true;
+  const f = m.fert; if (f && ((f.type&&f.type!=="water") || num(f.n)||num(f.p)||num(f.k)||num(f.density)||num(f.price))) return true;
+  return false;
+}
+TM.mixDraftDirty = mixDraftDirty;
+
+function openMix(r){
+  if (!r || !r.mix) return;
+  if (mixDraftDirty() && !confirm("Replace the current mix with “"+r.name+"”? Unsaved changes will be lost.")) return;
+  S.mix = clone(r.mix); saveCurrent(); loadMixIntoForm(); renderSaved(); showTab("mix"); toast("Opened “"+r.name+"”");
+}
+TM.openMix = openMix;
+
+function mixJobsMeta(r){
+  const n = (r.mix && r.mix.products || []).length;
+  const when = r.updated ? new Date(r.updated).toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"}) : "";
+  return (n?n+" product"+(n===1?"":"s"):"no products")+(when?" · "+when:"");
+}
+
+function updateMixJobsCard(){
+  const n = S.mixes.length, badge = $("mixJobsN"), hint = $("mixJobsHint"), btn = $("btnOpenSavedMix");
+  if (badge) badge.textContent = String(n);
+  if (btn) btn.disabled = false;
+  if (!hint) return;
+  if (!n){
+    hint.innerHTML = `No saved mixes yet. Tap <b>Save</b> at the top to keep this job, then open it here anytime. Saved mixes also stay under Settings › Saved.`;
+    return;
+  }
+  const open = S.mix && S.mix.id && S.mixes.find(x=>x.id===S.mix.id);
+  hint.textContent = open
+    ? ("Open now: "+open.name+" · "+mixJobsMeta(open)+". Pick another below, or manage them in Settings › Saved.")
+    : (n+" saved mix"+(n===1?"":"es")+". Also under Settings › Saved.");
+}
+
+function openSavedMixPicker(){
+  const sorted = S.mixes.slice().sort((a,b)=>(b.updated||0)-(a.updated||0));
+  openDlg("Open a saved mix", `<input id="mjQ" type="search" placeholder="Search saved mixes" autocomplete="off" style="margin-bottom:8px">
+    <div id="mjList"></div>
+    <p class="tiny muted" style="margin:10px 0 0">Same list as Settings › Saved. Opening replaces the Mix draft.</p>`);
+  const draw = () => {
+    const q = ($("mjQ").value||"").toLowerCase().trim();
+    const hit = r => !q || (r.name||"").toLowerCase().includes(q) || (r.mix.products||[]).some(p=>(p.name||"").toLowerCase().includes(q));
+    const list = sorted.filter(hit);
+    const L = $("mjList");
+    if (!S.mixes.length){
+      L.innerHTML = `<div class="empty small">No saved mixes yet. Tap <b>Save</b> on the Mix tab to keep a job.</div>`;
+      return;
+    }
+    if (!list.length){ L.innerHTML = `<div class="empty small">No matches.</div>`; return; }
+    L.innerHTML = list.map(r=>`<div class="res" data-id="${r.id}"><button class="link" type="button" data-act="mjload"><div class="nm">${esc(r.name||"Untitled")}${r.id===S.mix.id?' <span class="badge ok">open</span>':""}</div>
+      <div class="tiny muted">${esc(mixJobsMeta(r))}</div></button></div>`).join("");
+  };
+  draw();
+  $("mjQ").oninput = draw;
+  $("mjList").onclick = e=>{
+    const b = e.target.closest("[data-act=mjload]"); if (!b) return;
+    const r = S.mixes.find(x=>x.id===b.closest(".res").dataset.id); if (!r) return;
+    closeDlg(); openMix(r);
+  };
+}
+TM.openSavedMixPicker = openSavedMixPicker;
+
 function renderSaved(){
   const L = $("savedList");
-  if (!S.mixes.length){ L.innerHTML = `<div class="empty">No saved mixes yet. Tap <b>Save</b> at the top.</div>`; return; }
-  L.innerHTML = S.mixes.map(r=>`<div class="res" data-id="${r.id}">
+  if (!S.mixes.length){ L.innerHTML = `<div class="empty">No saved mixes yet. Tap <b>Save</b> at the top.</div>`; }
+  else L.innerHTML = S.mixes.map(r=>`<div class="res" data-id="${r.id}">
     <button class="link" data-act="load"><div class="nm">${esc(r.name)}${r.id===S.mix.id?' <span class="badge ok">open</span>':""}</div>
     <div class="tiny muted">${esc(r.mix.products.map(p=>p.name).filter(Boolean).join(", ")||"no products")} · ${new Date(r.updated).toLocaleDateString()}</div></button>
     <button class="iconbtn" data-act="menu" title="Options">⋯</button></div>`).join("");
+  updateMixJobsCard();
 }
 function bindSaved(){
   $("savedList").addEventListener("click", e=>{
@@ -1721,6 +1796,7 @@ function bindSaved(){
   $("btnNewMix").onclick = ()=>{ S.mix = blankMix(); saveCurrent(); loadMixIntoForm(); renderSaved(); showTab("mix"); toast("New mix"); };
   $("btnSaveAs").onclick = ()=>saveMix(true);
   $("btnSave").onclick = ()=>saveMix(false);
+  if ($("btnOpenSavedMix")) $("btnOpenSavedMix").onclick = openSavedMixPicker;
 }
 /* ---------- Settings / backup ---------- */
 function applyTheme(){ document.documentElement.dataset.theme = S.settings.theme; document.querySelector('meta[name=theme-color]').content = S.settings.theme==="dark" ? "#18201b" : "#1f5f3a"; }
