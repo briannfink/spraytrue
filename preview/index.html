@@ -896,7 +896,10 @@ svg.leaflet-image-layer.leaflet-interactive path {
 <section class="view on" id="v-mix" role="tabpanel">
   <div class="card" id="mixJobsCard">
     <h2 style="justify-content:space-between;margin-bottom:8px">Saved jobs <span class="badge" id="mixJobsN">0</span></h2>
-    <button class="btn alt block" id="btnOpenSavedMix" type="button" aria-haspopup="dialog">📂 Open a saved mix…</button>
+    <label class="f" for="mixJobsSel">Open a saved mix</label>
+    <select id="mixJobsSel" aria-label="Open a saved mix">
+      <option value="">Choose a saved mix…</option>
+    </select>
     <p class="tiny muted" id="mixJobsHint" style="margin:8px 0 0">Saved mixes also stay under Settings › Saved.</p>
   </div>
   <div class="card">
@@ -1108,7 +1111,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
    3. Storage (localStorage)
    4. UI: Mix, Order/Jar test, Lookup (EPA), Saved, Print
    ===================================================================== */
-const APP_VERSION = "2.9.0";
+const APP_VERSION = "2.9.1";
 const TM = window.TM = {};
 
 /* ---------- 1. Constants ---------- */
@@ -1726,47 +1729,38 @@ function mixJobsMeta(r){
 }
 
 function updateMixJobsCard(){
-  const n = S.mixes.length, badge = $("mixJobsN"), hint = $("mixJobsHint"), btn = $("btnOpenSavedMix");
+  const n = S.mixes.length, badge = $("mixJobsN"), hint = $("mixJobsHint"), sel = $("mixJobsSel");
   if (badge) badge.textContent = String(n);
-  if (btn) btn.disabled = false;
-  if (!hint) return;
+  if (!sel) return;
+  const sorted = S.mixes.slice().sort((a,b)=>(b.updated||0)-(a.updated||0));
   if (!n){
-    hint.innerHTML = `No saved mixes yet. Tap <b>Save</b> at the top to keep this job, then open it here anytime. Saved mixes also stay under Settings › Saved.`;
+    sel.disabled = true;
+    sel.innerHTML = `<option value="">No saved mixes</option>`;
+    if (hint) hint.innerHTML = `No saved mixes yet. Tap <b>Save</b> at the top to keep this job, then open it here anytime. Also under Settings › Saved.`;
     return;
   }
-  const open = S.mix && S.mix.id && S.mixes.find(x=>x.id===S.mix.id);
-  hint.textContent = open
-    ? ("Open now: "+open.name+" · "+mixJobsMeta(open)+". Pick another below, or manage them in Settings › Saved.")
-    : (n+" saved mix"+(n===1?"":"es")+". Also under Settings › Saved.");
+  sel.disabled = false;
+  sel.innerHTML = `<option value="">Choose a saved mix…</option>` + sorted.map(r=>{
+    const label = (r.name||"Untitled")+" · "+mixJobsMeta(r);
+    return `<option value="${esc(r.id)}">${esc(label)}</option>`;
+  }).join("");
+  sel.value = "";
+  if (hint){
+    const open = S.mix && S.mix.id && S.mixes.find(x=>x.id===S.mix.id);
+    hint.textContent = open
+      ? ("Open now: "+open.name+" · "+mixJobsMeta(open)+". Pick another above, or manage them in Settings › Saved.")
+      : (n+" saved mix"+(n===1?"":"es")+". Also under Settings › Saved.");
+  }
 }
 
-function openSavedMixPicker(){
-  const sorted = S.mixes.slice().sort((a,b)=>(b.updated||0)-(a.updated||0));
-  openDlg("Open a saved mix", `<input id="mjQ" type="search" placeholder="Search saved mixes" autocomplete="off" style="margin-bottom:8px">
-    <div id="mjList"></div>
-    <p class="tiny muted" style="margin:10px 0 0">Same list as Settings › Saved. Opening replaces the Mix draft.</p>`);
-  const draw = () => {
-    const q = ($("mjQ").value||"").toLowerCase().trim();
-    const hit = r => !q || (r.name||"").toLowerCase().includes(q) || (r.mix.products||[]).some(p=>(p.name||"").toLowerCase().includes(q));
-    const list = sorted.filter(hit);
-    const L = $("mjList");
-    if (!S.mixes.length){
-      L.innerHTML = `<div class="empty small">No saved mixes yet. Tap <b>Save</b> on the Mix tab to keep a job.</div>`;
-      return;
-    }
-    if (!list.length){ L.innerHTML = `<div class="empty small">No matches.</div>`; return; }
-    L.innerHTML = list.map(r=>`<div class="res" data-id="${r.id}"><button class="link" type="button" data-act="mjload"><div class="nm">${esc(r.name||"Untitled")}${r.id===S.mix.id?' <span class="badge ok">open</span>':""}</div>
-      <div class="tiny muted">${esc(mixJobsMeta(r))}</div></button></div>`).join("");
-  };
-  draw();
-  $("mjQ").oninput = draw;
-  $("mjList").onclick = e=>{
-    const b = e.target.closest("[data-act=mjload]"); if (!b) return;
-    const r = S.mixes.find(x=>x.id===b.closest(".res").dataset.id); if (!r) return;
-    closeDlg(); openMix(r);
-  };
+function onMixJobsSelect(){
+  const sel = $("mixJobsSel"); if (!sel) return;
+  const id = sel.value;
+  sel.value = ""; // reset so the same mix can be chosen again
+  if (!id) return;
+  const r = S.mixes.find(x=>x.id===id); if (r) openMix(r);
 }
-TM.openSavedMixPicker = openSavedMixPicker;
+TM.onMixJobsSelect = onMixJobsSelect;
 
 function renderSaved(){
   const L = $("savedList");
@@ -1796,7 +1790,7 @@ function bindSaved(){
   $("btnNewMix").onclick = ()=>{ S.mix = blankMix(); saveCurrent(); loadMixIntoForm(); renderSaved(); showTab("mix"); toast("New mix"); };
   $("btnSaveAs").onclick = ()=>saveMix(true);
   $("btnSave").onclick = ()=>saveMix(false);
-  if ($("btnOpenSavedMix")) $("btnOpenSavedMix").onclick = openSavedMixPicker;
+  if ($("mixJobsSel")) $("mixJobsSel").onchange = onMixJobsSelect;
 }
 /* ---------- Settings / backup ---------- */
 function applyTheme(){ document.documentElement.dataset.theme = S.settings.theme; document.querySelector('meta[name=theme-color]').content = S.settings.theme==="dark" ? "#18201b" : "#1f5f3a"; }
