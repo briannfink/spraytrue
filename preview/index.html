@@ -895,9 +895,8 @@ svg.leaflet-image-layer.leaflet-interactive path {
 <main>
 <section class="view on" id="v-mix" role="tabpanel">
   <div class="card" id="mixJobsCard">
-    <h2 style="justify-content:space-between;margin-bottom:8px">Saved jobs <span class="badge" id="mixJobsN">0</span></h2>
-    <label class="f" for="mixJobsSel">Open a saved mix</label>
-    <select id="mixJobsSel" aria-label="Open a saved mix">
+    <h2 style="margin-bottom:8px">Saved Mixes</h2>
+    <select id="mixJobsSel" aria-label="Choose a saved mix">
       <option value="">Choose a saved mix…</option>
     </select>
     <p class="tiny muted" id="mixJobsHint" style="margin:8px 0 0">Saved mixes also stay under Settings › Saved.</p>
@@ -1111,7 +1110,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
    3. Storage (localStorage)
    4. UI: Mix, Order/Jar test, Lookup (EPA), Saved, Print
    ===================================================================== */
-const APP_VERSION = "2.9.1";
+const APP_VERSION = "2.9.2";
 const TM = window.TM = {};
 
 /* ---------- 1. Constants ---------- */
@@ -1729,8 +1728,7 @@ function mixJobsMeta(r){
 }
 
 function updateMixJobsCard(){
-  const n = S.mixes.length, badge = $("mixJobsN"), hint = $("mixJobsHint"), sel = $("mixJobsSel");
-  if (badge) badge.textContent = String(n);
+  const n = S.mixes.length, hint = $("mixJobsHint"), sel = $("mixJobsSel");
   if (!sel) return;
   const sorted = S.mixes.slice().sort((a,b)=>(b.updated||0)-(a.updated||0));
   if (!n){
