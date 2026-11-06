@@ -1025,7 +1025,6 @@ svg.leaflet-image-layer.leaflet-interactive path {
   <div class="card"><h2>Settings</h2>
     <div class="menu">
       <button class="mi" data-go="saved"><span class="mic">💾</span><span class="mit"><b>Saved</b><span class="tiny muted">Saved mixes · backup &amp; import</span></span><span class="badge" id="setSavedN">0</span><span class="chev">›</span></button>
-      <button class="mi" data-go="log"><span class="mic">📝</span><span class="mit"><b>Logs</b><span class="tiny muted">Open the Logs tab · spray records · CSV · print</span></span><span class="badge" id="setLogN">0</span><span class="chev">›</span></button>
     </div>
   </div>
   <div class="card">
@@ -1110,7 +1109,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
    3. Storage (localStorage)
    4. UI: Mix, Order/Jar test, Lookup (EPA), Saved, Print
    ===================================================================== */
-const APP_VERSION = "2.10.0";
+const APP_VERSION = "2.10.1";
 const TM = window.TM = {};
 
 /* ---------- 1. Constants ---------- */
@@ -1677,7 +1676,7 @@ function showTab(v){
   }
   const nv = TAB_OF[v] || v;
   document.querySelectorAll("nav.tabs button").forEach(b=>b.setAttribute("aria-selected", b.dataset.v===nv));
-  if (v==="set"){ const a=$("setSavedN"), b=$("setLogN"); if (a) a.textContent = S.mixes.length; if (b) b.textContent = S.log.length; }
+  if (v==="set"){ const a=$("setSavedN"); if (a) a.textContent = S.mixes.length; }
   window.scrollTo(0,0);
 }
 TM.showTab = showTab;
