@@ -1085,7 +1085,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
 <div class="toast undo" id="undoToast" role="status" aria-live="polite"><span id="undoMsg">Mix cleared</span> <button type="button" id="btnUndoClear">Undo</button></div>
 <div id="pvBar">
   <div class="pvrow"><button class="btn alt sm" id="pvBack">‹ Back</button><b id="pvTitle">Print view</b></div>
-  <div class="pvbtns"><button class="btn" id="pvPrint">🖨 Print</button><button class="btn alt" id="pvShare">📤 Share / Save PDF</button><button class="btn alt" id="pvDl">⬇ Download</button></div>
+  <div class="pvbtns"><button class="btn" id="pvPrint">🖨 Print</button><button class="btn alt" id="pvShare">📤 Share / Save PDF</button><button class="btn alt" id="pvDl">⬇ Download PDF</button></div>
   <div class="tiny" id="pvNote"></div>
 </div>
 <div id="printSheet"></div>
@@ -1109,7 +1109,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
    3. Storage (localStorage)
    4. UI: Mix, Order/Jar test, Lookup (EPA), Saved, Print
    ===================================================================== */
-const APP_VERSION = "2.10.1";
+const APP_VERSION = "2.11.0";
 const TM = window.TM = {};
 
 /* ---------- 1. Constants ---------- */
@@ -2224,10 +2224,9 @@ function renderPrint(R){
     <p style="font-size:10pt">Amounts are full tank / partial tank. Carrier = load volume − product volume, to 0.1 ${m?"L":"gal"}. Follow all product labels; label mixing order and restrictions take priority. Jar test new combinations.</p>
     <p style="font-size:11pt">Applicator: ____________________ Date: __________ Field: ____________________ Wind: ________ Temp: ______</p>`;
 }
-/* Print view. v2.0 printed by closing a dialog and calling window.print() from a timer. That works in desktop
-   browsers, but iPhone home-screen (standalone) web apps ignore window.print() completely, so nothing happened.
-   Now Print opens a full-page print view: the sheet is visible on screen, Print calls window.print() directly in the tap,
-   and Share / Download give a path that works everywhere (share sheet → Print / Save to Files, or a printable .html file). */
+/* Print view. Print opens a full-page sheet; Print calls window.print() in the tap.
+   Share / Download build a real PDF from #printSheet (minimal client-side writer, Helvetica,
+   works offline / iOS standalone — no html2canvas). v2.0–v2.10 shared a printable .html file. */
 const isStandalone = () => !!((window.matchMedia && (matchMedia("(display-mode: standalone)").matches || matchMedia("(display-mode: fullscreen)").matches)) || navigator.standalone===true);
 const isIOS = () => /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform==="MacIntel" && navigator.maxTouchPoints>1);
 TM.isStandalone = isStandalone;
@@ -2237,7 +2236,7 @@ function openPrintView(kind, title, text){
   TM.printMode = kind;
   $("pvTitle").textContent = title;
   $("pvBar").classList.toggle("ios", isStandalone() && isIOS());
-  $("pvNote").textContent = isStandalone() && isIOS() ? "iPhone and iPad home-screen apps can't open the print dialog. Tap Share / Save PDF, then choose Print (or Save to Files). Or open this page in Safari to print." : "";
+  $("pvNote").textContent = isStandalone() && isIOS() ? "iPhone and iPad home-screen apps can't open the print dialog. Tap Share / Save PDF to save or send a PDF, or open this page in Safari to print." : "";
   closeDlg(); document.body.classList.add("pv"); window.scrollTo(0,0);
   try { history.pushState({tmPrint:1}, ""); } catch(e){}
 }
@@ -2249,38 +2248,187 @@ function closePrintView(fromNav){
 }
 TM.closePrintView = closePrintView;
 window.addEventListener("popstate", ()=>{ if (PV.skipPop){ PV.skipPop = false; return; } if (PV.open){ PV.open = false; TM.printMode = null; document.body.classList.remove("pv"); window.scrollTo(0, PV.scroll); } });
-const sheetCss = `body{font:12pt/1.35 -apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#000;background:#fff;margin:16px}h1{font-size:20pt;margin:0 0 4pt}
-table{width:100%;border-collapse:collapse;margin:6pt 0 10pt}th,td{border:1px solid #888;padding:4pt 6pt;text-align:left;font-size:11pt;vertical-align:top}th{background:#eee}
-.ps-meta{font-size:10pt;color:#333}ol{margin:4pt 0 10pt 18pt;padding:0}.tiny,.small,small{font-size:9.5pt}.muted{color:#444}
-.pbtn{font:inherit;font-weight:700;padding:10px 18px;border-radius:10px;border:2px solid #1f5f3a;background:#1f5f3a;color:#fff;margin:0 0 12px}@media print{.pbtn{display:none}}`;
-function sheetDoc(){
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${esc(PV.title)}</title><style>${sheetCss}</style></head><body><button class="pbtn" onclick="window.print()">🖨 Print</button>${$("printSheet").innerHTML}</body></html>`;
+
+/* ---- Minimal PDF 1.4 writer (WinAnsi Helvetica, multipage US Letter) ---- */
+const PDF_W = 612, PDF_H = 792, PDF_M = 36;
+function pdfSafe(s){
+  return String(s==null?"":s)
+    .replace(/\u00a0/g," ")
+    .replace(/[—–−]/g,"-")
+    .replace(/[·•∙]/g,"*")
+    .replace(/[“”„]/g,'"')
+    .replace(/[‘’‚]/g,"'")
+    .replace(/…/g,"...")
+    .replace(/[×✕]/g,"x")
+    .replace(/→/g,"->")
+    .replace(/‹/g,"<").replace(/›/g,">")
+    .replace(/[✓✔]/g,"*")
+    .replace(/⚠/g,"!")
+    .replace(/°/g," deg")
+    .replace(/[^\x09\x0A\x0D\x20-\x7E]/g,"");
 }
-const sheetFile = () => (PV.title||"tankmix").replace(/[^\w\- ]+/g,"").trim().replace(/\s+/g,"-").slice(0,60)+"-"+localDate()+".html";
+function pdfEsc(s){ return pdfSafe(s).replace(/\\/g,"\\\\").replace(/\(/g,"\\(").replace(/\)/g,"\\)"); }
+function pdfWrap(s, maxChars){
+  s = pdfSafe(s); if (!s) return [""];
+  const out = []; let line = "";
+  s.split(/\s+/).forEach(w=>{
+    if (!line) line = w;
+    else if ((line+" "+w).length <= maxChars) line += " "+w;
+    else { out.push(line); line = w; }
+  });
+  if (line) out.push(line);
+  return out.length ? out : [""];
+}
+function buildSheetPdf(root){
+  root = root || $("printSheet");
+  const objs = []; // 1-indexed PDF objects as strings
+  const pages = []; // content streams
+  let y = PDF_H - PDF_M, stream = [];
+  const usable = PDF_W - 2*PDF_M;
+  const newPage = ()=>{ if (stream.length) pages.push(stream); stream = []; y = PDF_H - PDF_M; };
+  const ensure = h => { if (y - h < PDF_M) newPage(); };
+  const textAt = (x, yy, size, str, bold) => {
+    stream.push("BT /F"+(bold?2:1)+" "+size+" Tf "+x.toFixed(2)+" "+yy.toFixed(2)+" Td ("+pdfEsc(str)+") Tj ET");
+  };
+  const lineH = (x1,y1,x2,y2) => stream.push(x1.toFixed(2)+" "+y1.toFixed(2)+" m "+x2.toFixed(2)+" "+y2.toFixed(2)+" l S");
+  const putLines = (lines, size, gap, bold, indent) => {
+    const lh = size + gap;
+    lines.forEach(ln=>{ ensure(lh+2); y -= lh; textAt(PDF_M+(indent||0), y, size, ln, bold); });
+  };
+  const putPara = (txt, size, maxCh, bold, indent) => putLines(pdfWrap(txt, maxCh), size, 3, bold, indent);
+
+  const drawTable = (tableEl) => {
+    const rows = [...tableEl.querySelectorAll("tr")].map(tr => [...tr.children].map(c => pdfSafe((c.innerText||c.textContent||"").replace(/\s+/g," ").trim())));
+    if (!rows.length) return;
+    const cols = Math.max(...rows.map(r=>r.length));
+    rows.forEach(r=>{ while (r.length<cols) r.push(""); });
+    // column weights: first col a bit wider for product names
+    const weights = Array.from({length:cols}, (_,i)=> i===0 && cols>2 ? 1.6 : 1);
+    const wsum = weights.reduce((a,b)=>a+b,0);
+    const widths = weights.map(w => usable * w / wsum);
+    const xs = []; let x = PDF_M; widths.forEach(w=>{ xs.push(x); x += w; });
+    const pad = 4, font = 8, lh = font + 3;
+    rows.forEach((cells, ri) => {
+      const wrapped = cells.map((c,i)=>pdfWrap(c, Math.max(4, Math.floor(widths[i]/4.2))));
+      const nLines = Math.max(1, ...wrapped.map(w=>w.length));
+      const rowH = nLines * lh + pad*2;
+      ensure(rowH + 2);
+      y -= rowH;
+      const top = y + rowH, bot = y;
+      // background for header
+      if (ri===0 || cells.every((_,i)=>tableEl.querySelectorAll("tr")[ri].children[i] && tableEl.querySelectorAll("tr")[ri].children[i].tagName==="TH")){
+        stream.push("0.92 g "+PDF_M.toFixed(2)+" "+bot.toFixed(2)+" "+usable.toFixed(2)+" "+rowH.toFixed(2)+" re f 0 g");
+      }
+      // grid
+      lineH(PDF_M, top, PDF_M+usable, top); lineH(PDF_M, bot, PDF_M+usable, bot);
+      for (let i=0;i<=cols;i++){ const xx = i<cols?xs[i]:PDF_M+usable; lineH(xx, bot, xx, top); }
+      const isHead = ri===0 || [...tableEl.querySelectorAll("tr")[ri].children].every(c=>c.tagName==="TH");
+      wrapped.forEach((lines, i)=>{
+        lines.forEach((ln, li)=>{
+          textAt(xs[i]+pad, top - pad - font - li*lh, font, ln, isHead);
+        });
+      });
+      y -= 1;
+    });
+    y -= 6;
+  };
+
+  const walk = (node) => {
+    if (!node || node.nodeType !== 1) return;
+    const tag = node.tagName;
+    if (tag==="H1"){ putPara(node.innerText, 16, 70, true, 0); y -= 4; return; }
+    if (tag==="H2" || tag==="H3"){ y -= 6; putPara(node.innerText, 11, 80, true, 0); y -= 2; return; }
+    if (tag==="P" || (tag==="DIV" && node.classList.contains("ps-meta"))){ putPara(node.innerText, 9, 95, false, 0); y -= 4; return; }
+    if (tag==="TABLE"){ drawTable(node); return; }
+    if (tag==="OL" || tag==="UL"){
+      [...node.children].forEach((li,i)=>{
+        if (li.tagName!=="LI") return;
+        const prefix = tag==="OL" ? (i+1)+". " : "* ";
+        const lines = pdfWrap(prefix + (li.innerText||"").replace(/\s+/g," ").trim(), 90);
+        putLines(lines, 9, 3, false, 8);
+      });
+      y -= 4; return;
+    }
+    // generic container
+    [...node.children].forEach(walk);
+  };
+  [...root.children].forEach(walk);
+  if (stream.length) pages.push(stream);
+  if (!pages.length){ stream = []; textAt(PDF_M, PDF_H-PDF_M-14, 12, PV.title||"TankMix", true); pages.push(stream); }
+
+  // Assemble PDF
+  const enc = s => new TextEncoder().encode(s);
+  const parts = [];
+  const add = s => { parts.push(typeof s==="string" ? enc(s) : s); };
+  add("%PDF-1.4\n");
+  const offsets = [0];
+  const obj = (n, body) => {
+    offsets[n] = parts.reduce((a,p)=>a+p.length, 0);
+    add(n+" 0 obj\n"+body+"\nendobj\n");
+  };
+  obj(1, "<< /Type /Catalog /Pages 2 0 R >>");
+  const kids = pages.map((_,i)=> (3+i*2)+" 0 R").join(" ");
+  obj(2, "<< /Type /Pages /Kids ["+kids+"] /Count "+pages.length+" >>");
+  const fontStart = 3 + pages.length*2;
+  pages.forEach((cmds, i) => {
+    const content = cmds.join("\n");
+    const pageObj = 3 + i*2, contObj = pageObj+1;
+    obj(pageObj, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 "+PDF_W+" "+PDF_H+"] /Contents "+contObj+" 0 R /Resources << /Font << /F1 "+fontStart+" 0 R /F2 "+(fontStart+1)+" 0 R >> >> >>");
+    obj(contObj, "<< /Length "+content.length+" >>\nstream\n"+content+"\nendstream");
+  });
+  obj(fontStart, "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
+  obj(fontStart+1, "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>");
+  const xrefAt = parts.reduce((a,p)=>a+p.length, 0);
+  const nObj = fontStart+1;
+  let xref = "xref\n0 "+(nObj+1)+"\n0000000000 65535 f \n";
+  for (let i=1;i<=nObj;i++) xref += String(offsets[i]).padStart(10,"0")+" 00000 n \n";
+  add(xref);
+  add("trailer\n<< /Size "+(nObj+1)+" /Root 1 0 R >>\nstartxref\n"+xrefAt+"\n%%EOF");
+  const total = parts.reduce((a,p)=>a+p.length, 0);
+  const out = new Uint8Array(total);
+  let off = 0; parts.forEach(p=>{ out.set(p, off); off += p.length; });
+  return out;
+}
+function sheetPdfBlob(root){
+  const bytes = buildSheetPdf(root || $("printSheet"));
+  return new Blob([bytes], {type:"application/pdf"});
+}
+TM.buildSheetPdf = buildSheetPdf;
+TM.sheetPdfBlob = sheetPdfBlob;
+
+const sheetFile = () => (PV.title||"tankmix").replace(/[^\w\- ]+/g,"").trim().replace(/\s+/g,"-").slice(0,60)+"-"+localDate()+".pdf";
 function pvPrint(){
   // must run synchronously inside the tap (no timers or awaits) so the browser still counts it as a user action
   let fired = false; const mark = () => { fired = true; };
   window.addEventListener("beforeprint", mark, {once:true});
   try { window.print(); } catch(e){}
   setTimeout(()=>{ window.removeEventListener("beforeprint", mark);
-    if (!fired) $("pvNote").textContent = "This browser didn't open a print dialog"+(isStandalone()?" (installed home-screen apps often can't)":"")+". Tap Share / Save PDF and choose Print or Save to Files, or Download the sheet and print it from there.";
+    if (!fired) $("pvNote").textContent = "This browser didn't open a print dialog"+(isStandalone()?" (installed home-screen apps often can't)":"")+". Tap Share / Save PDF to get a PDF, or Download PDF.";
   }, 1500);
 }
 function pvDownload(){
-  const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([sheetDoc()],{type:"text/html"})); a.download = sheetFile();
-  document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href), 30000);
-  toast("Sheet downloaded. Open it to print or save as PDF");
+  try {
+    const blob = sheetPdfBlob();
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = sheetFile();
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href), 30000);
+    toast("PDF downloaded ("+Math.max(1, Math.round(blob.size/1024))+" KB)");
+  } catch(e){ toast("Couldn't build PDF"); console.error(e); }
 }
 async function pvShare(){
+  let blob;
+  try { blob = sheetPdfBlob(); } catch(e){ toast("Couldn't build PDF"); return; }
+  const name = sheetFile();
   try {
     if (navigator.share){
-      const f = typeof File==="function" ? new File([sheetDoc()], sheetFile(), {type:"text/html"}) : null;
-      if (f && navigator.canShare && navigator.canShare({files:[f]})) await navigator.share({files:[f], title:PV.title});
-      else await navigator.share({title:PV.title, text:PV.text});
-      return;
+      const f = typeof File==="function" ? new File([blob], name, {type:"application/pdf"}) : null;
+      if (f && navigator.canShare && navigator.canShare({files:[f]})){ await navigator.share({files:[f], title:PV.title}); return; }
+      // share text fallback, then offer download
+      try { await navigator.share({title:PV.title, text:PV.text}); } catch(e2){ if (e2 && e2.name==="AbortError") return; }
+      toast("Sharing a PDF file isn't supported here — downloading the PDF");
+      pvDownload(); return;
     }
   } catch(e){ if (e && e.name==="AbortError") return; }
-  try { await navigator.clipboard.writeText(PV.text); toast("No share option here. Text copied; downloading the sheet too"); } catch(e){}
+  try { await navigator.clipboard.writeText(PV.text); toast("No share option here. Text copied; downloading PDF too"); } catch(e){}
   pvDownload();
 }
 function bindPrint(){
