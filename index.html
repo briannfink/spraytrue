@@ -221,6 +221,7 @@ body.pv #printSheet{display:block;background:#fff;color:#000;padding:14px;max-wi
 #lgDraw.on{background:#e0a100;border-color:#e0a100;color:#111}
 .locbox .inrow input{flex:1 1 auto}
 .locbox .g2 .btn.sm{white-space:nowrap;font-size:14.5px;padding:0 8px}
+#accountCard [hidden]{display:none!important}
 </style>
 <style>/* required styles */
 
@@ -1030,6 +1031,27 @@ svg.leaflet-image-layer.leaflet-interactive path {
       <button class="mi" data-go="saved"><span class="mic">💾</span><span class="mit"><b>Saved</b><span class="tiny muted">Saved mixes · backup &amp; import</span></span><span class="badge" id="setSavedN">0</span><span class="chev">›</span></button>
     </div>
   </div>
+  <div class="card" id="accountCard">
+    <h2>Account / Sync</h2>
+    <div id="syncIdentity" class="small muted">Not signed in — data stays on this device.</div>
+    <form id="syncLoginForm" class="grid" style="margin-top:10px">
+      <div><label class="f" for="syncEmail">Email</label><input id="syncEmail" type="email" autocomplete="email" required placeholder="Your email address"></div>
+      <label class="chk"><input id="syncConsent" type="checkbox" required> Sync my TankMix data, including personal weather API keys, to my private account.</label>
+      <button class="btn" id="syncSend" type="submit">Email sign-in link</button>
+      <p class="tiny muted" style="margin:0">Open the link on this device/browser. No password needed. If your email includes a code, you can enter it below instead.</p>
+    </form>
+    <form id="syncCodeForm" class="grid" hidden style="margin-top:10px">
+      <div><label class="f" for="syncCode">Email one-time code (if supplied)</label><input id="syncCode" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6,10}" maxlength="10"></div>
+      <button class="btn alt" type="submit">Verify code</button>
+    </form>
+    <div id="syncActions" hidden style="margin-top:10px">
+      <div class="grid g2"><button class="btn" id="syncNow" type="button">Sync now</button><button class="btn alt" id="syncOut" type="button">Sign out</button></div>
+      <p class="tiny muted">Offline edits stay here and sync when you reconnect. Newest change wins per key. Signing out keeps local data on this device.</p>
+    </div>
+    <p id="syncLast" class="tiny muted" style="margin:8px 0 0">Last synced: never</p>
+    <p id="syncStatus" class="small" role="status" aria-live="polite"></p>
+    <button class="btn alt sm" id="syncRecovery" type="button" hidden>Download pre-sync recovery backup</button>
+  </div>
   <div class="card">
     <h2>App settings</h2>
     <div class="grid">
@@ -1112,7 +1134,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
    3. Storage (localStorage)
    4. UI: Mix, Order/Jar test, Lookup (EPA), Saved, Print
    ===================================================================== */
-const APP_VERSION = "2.11.0";
+const APP_VERSION = "2.12.0";
 const TM = window.TM = {};
 
 /* ---------- 1. Constants ---------- */
@@ -1314,7 +1336,7 @@ const uid = () => Math.random().toString(36).slice(2,10)+Date.now().toString(36)
 /* ---------- 3. Storage ---------- */
 const LS = {
   get(k, d){ try{ const v = localStorage.getItem("tm."+k); return v==null ? d : JSON.parse(v); }catch(e){ return d; } },
-  set(k, v){ try{ localStorage.setItem("tm."+k, JSON.stringify(v)); }catch(e){ toast("Storage full or blocked; data not saved"); } }
+  set(k, v){ try{ localStorage.setItem("tm."+k, JSON.stringify(v)); if (TM.syncChanged) TM.syncChanged("tm."+k); }catch(e){ toast("Storage full or blocked; data not saved"); } }
 };
 const S = {
   settings: Object.assign({units:"us", theme:"light", jar:32, wxSrc:"openmeteo", wxLoc:null, mapLayer:"sat", lastFieldLoc:null}, LS.get("settings", {})),
@@ -2079,10 +2101,10 @@ function slim(x){ // what we keep in the offline cache
 }
 // EPA's site and pest lists can be long; if localStorage fills up, drop them from older cached records first
 function saveEpaCache(){
-  try { localStorage.setItem("tm.epaCache", JSON.stringify(S.epaCache)); return; } catch(e){}
+  try { localStorage.setItem("tm.epaCache", JSON.stringify(S.epaCache)); if (TM.syncChanged) TM.syncChanged("tm.epaCache"); return; } catch(e){}
   const recs = Object.values(S.epaCache).sort((a,b)=>(b._cached||"").localeCompare(a._cached||""));
   recs.slice(15).forEach(r=>{ delete r.siteList; delete r.pestList; });
-  try { localStorage.setItem("tm.epaCache", JSON.stringify(S.epaCache)); } catch(e){ toast("Storage full; EPA record not cached"); }
+  try { localStorage.setItem("tm.epaCache", JSON.stringify(S.epaCache)); if (TM.syncChanged) TM.syncChanged("tm.epaCache"); } catch(e){ toast("Storage full; EPA record not cached"); }
 }
 async function fetchDetail(reg){
   const dist = /^\d+-\d+-\d+$/.test(reg), base = reg.split("-").slice(0,2).join("-");
@@ -2809,7 +2831,7 @@ function makeMap(el, opts){
   opts = opts || {};
   if (!hasLeaflet()){ el.innerHTML = `<div class="mapmsg on">Map unavailable in this browser. Type the coordinates below.</div>`; return null; }
   const st = mapStart(opts.loc), edit = !opts.readOnly;
-  const map = L.map(el, { zoomControl:true, attributionControl:true, zoomSnap:0.5, scrollWheelZoom:"center", boxZoom:false, keyboard:false }).setView([st.lat, st.lon], st.z);
+  const map = L.map(el, { zoomControl:true, attributionControl:true, zoomAnimation:false, zoomSnap:0.5, scrollWheelZoom:"center", boxZoom:false, keyboard:false }).setView([st.lat, st.lon], st.z);
   const msg = document.createElement("div"); msg.className = "mapmsg"; el.appendChild(msg);
   let ok = 0, bad = 0;
   const showMsg = () => { msg.textContent = (navigator.onLine===false ? "Offline: " : "") + "map imagery can't load right now. You can still type coordinates; they save with the record."; msg.classList.add("on"); };
@@ -4044,6 +4066,313 @@ function attachWaBlock(p, host){
   root.appendChild(box);
 }
 TM.attachWaBlock = attachWaBlock;
+/* v2.12 Account / Sync. Local data remains tm.*; session/metadata stay DEVICE ONLY.
+   No service-role key or database password. All remote requests use auth.uid() RLS.
+   Whole-key LWW after first merge; deletions are explicit tombstones, never absence. */
+const SYNC_CONFIG = Object.freeze({
+  url: 'https://qcwneqqfiyuouokklnpg.supabase.co',
+  key: 'sb_publishable_PkfyLYIV_ZlA408XlTBnoQ_rV8e_olB'
+});
+const SYNC_LOCAL = {session:'tankmix.auth.v1', meta:'tankmix.sync.v1', recovery:'tankmix.recovery.v1'};
+const syncCopy = x => JSON.parse(JSON.stringify(x));
+const syncRead = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) || d; } catch(e){ return d; } };
+const syncEligible = k => typeof k==='string' && k.startsWith('tm.') && !['tm.syncMeta','tm.syncSession'].includes(k);
+const syncDigest = s => { let a=2166136261,b=5381; for (let i=0;i<s.length;i++){ a=Math.imul(a^s.charCodeAt(i),16777619); b=Math.imul(b,33)^s.charCodeAt(i); } return s.length+':'+(a>>>0)+':'+(b>>>0); };
+const syncTime = r => Date.parse(r && r.updated_at || '') || 0;
+const syncNorm = s => String(s||'').trim().toLowerCase().replace(/\s+/g,' ');
+const syncStable = x => {
+  if (Array.isArray(x)) return '['+x.map(syncStable).join(',')+']';
+  if (x && typeof x==='object') return '{'+Object.keys(x).sort().map(k=>JSON.stringify(k)+':'+syncStable(x[k])).join(',')+'}';
+  return JSON.stringify(x);
+};
+const syncNoIds = x => {
+  if (Array.isArray(x)) return x.map(syncNoIds);
+  if (x && typeof x==='object') return Object.fromEntries(Object.entries(x).filter(([k])=>!['id','libId','updated'].includes(k)).map(([k,v])=>[k,syncNoIds(v)]));
+  return x;
+};
+function syncSameItem(key,a,b){
+  if (!a || !b || typeof a!=='object' || typeof b!=='object') return syncStable(a)===syncStable(b);
+  if (a.id && b.id && a.id===b.id) return true;
+  if (key==='tm.library'){
+    if (a.wsdaId && b.wsdaId && String(a.wsdaId)===String(b.wsdaId) && (a.wsdaDb||'waprs')===(b.wsdaDb||'waprs')) return true;
+    if (a.waReg && b.waReg && syncNorm(a.waReg)===syncNorm(b.waReg)) return true;
+    if (a.epa && b.epa && normEpa(a.epa)===normEpa(b.epa)) return true;
+    return !a.epa && !b.epa && !a.waReg && !b.waReg && isWsdaLib(a)===isWsdaLib(b) && syncNorm(a.name)===syncNorm(b.name);
+  }
+  if (key==='tm.mixes') return syncNorm(a.name)===syncNorm(b.name) && syncStable(syncNoIds(a.mix))===syncStable(syncNoIds(b.mix));
+  if (key==='tm.fields') return syncNorm(a.name)===syncNorm(b.name) && a.lat===b.lat && a.lon===b.lon;
+  return syncStable(syncNoIds(a))===syncStable(syncNoIds(b));
+}
+function syncMergeList(key,older,newer){
+  const out=syncCopy(older||[]);
+  (newer||[]).forEach(x=>{ const i=out.findIndex(y=>syncSameItem(key,x,y)); if (i<0) out.push(syncCopy(x)); else if ((+x.updated||0)>=(+out[i].updated||0)) out[i]=syncCopy(x); });
+  return out;
+}
+// First contact unions collections and weather accounts; ordinary sync is strict per-key newest wins.
+function syncFirstMerge(local,cloud){
+  if (!local) return cloud;
+  if (!cloud) return local;
+  const newer=syncTime(local)>syncTime(cloud)?local:cloud, older=newer===local?cloud:local;
+  if (cloud.deleted) return cloud; // unversioned first-login device data must not resurrect a cloud tombstone
+  if (local.deleted) return newer;
+  const key=local.key; let value=newer.value;
+  if (['tm.library','tm.mixes','tm.log','tm.fields'].includes(key) && Array.isArray(local.value) && Array.isArray(cloud.value)) {
+    value=syncMergeList(key,older.value,newer.value).map(item=>{
+      // Keep cloud identity for a logical duplicate so existing cloud draft references remain valid.
+      const canonical=cloud.value.find(c=>syncSameItem(key,item,c));
+      if(canonical && canonical.id){item.id=canonical.id;if(key==='tm.mixes' && item.mix)item.mix.id=canonical.id;}
+      return item;
+    });
+  }
+  else if (['tm.tempest','tm.wu'].includes(key) && local.value && cloud.value){
+    value={...older.value,...newer.value, prefs:{...older.value.prefs,...newer.value.prefs}, seen:{...older.value.seen,...newer.value.seen}, accounts:syncMergeList('accounts',older.value.accounts,newer.value.accounts)};
+    // Same token may have acquired a different local id; prefer newer account, no duplicated station credentials.
+    value.accounts=value.accounts.filter((a,i,L)=>!a.token || !L.slice(i+1).some(b=>b.token===a.token));
+  } else if (key==='tm.current') value=cloud.value; // existing cloud draft beats a new-device default; local draft archived
+  else if (local.value && cloud.value && typeof local.value==='object' && !Array.isArray(local.value)) value={...older.value,...newer.value};
+  return {...newer,value};
+}
+
+const SYNC = {
+  session:null, meta:syncRead(SYNC_LOCAL.meta,{owner:null,rows:{},first:false,last:null}),
+  busy:false, again:false, timer:null, restoring:false, status:'', authBusy:false,
+  storeMeta(){ localStorage.setItem(SYNC_LOCAL.meta,JSON.stringify(this.meta)); },
+  setStatus(s){ this.status=s; this.render(); },
+  scan(){
+    const present=new Set(); let changed=false;
+    for (let i=0;i<localStorage.length;i++){
+      const key=localStorage.key(i); if (!syncEligible(key)) continue;
+      const raw=localStorage.getItem(key); try { JSON.parse(raw); } catch(e){ continue; }
+      present.add(key); const digest=syncDigest(raw), old=this.meta.rows[key];
+      if (!old || old.digest!==digest || old.deleted){
+        this.meta.rows[key]={digest,deleted:false,dirty:true,updated_at:new Date(Math.max(Date.now(),syncTime(old)+1)).toISOString()}; changed=true;
+      }
+    }
+    for (const [key,old] of Object.entries(this.meta.rows)) if (syncEligible(key) && !present.has(key) && !old.deleted){
+      this.meta.rows[key]={deleted:true,digest:null,dirty:true,updated_at:new Date(Math.max(Date.now(),syncTime(old)+1)).toISOString()}; changed=true;
+    }
+    if (changed) this.storeMeta(); return changed;
+  },
+  rows(){
+    return Object.entries(this.meta.rows).filter(([k])=>syncEligible(k)).map(([key,m])=>{
+      let value=null; if (!m.deleted) try { value=JSON.parse(localStorage.getItem(key)); } catch(e){}
+      return {key,value,updated_at:m.updated_at,deleted:!!m.deleted};
+    });
+  },
+  changed(){ if (this.restoring || !this.meta.owner) return; try { this.scan(); this.schedule(); } catch(e){ this.setStatus('Storage full: sync paused; export a backup.'); } },
+  schedule(ms=1500){
+    if (!this.session) return;
+    clearTimeout(this.timer); this.timer=setTimeout(()=>this.run(),ms);
+  },
+  render(){
+    if (!$('syncIdentity')) return;
+    const signed=!!this.session;
+    $('syncIdentity').textContent=signed?'Signed in as '+(this.session.user.email||'your account'):'Not signed in — data stays on this device.';
+    $('syncLoginForm').hidden=signed; $('syncActions').hidden=!signed;
+    if (signed) $('syncCodeForm').hidden=true;
+    $('syncNow').disabled=this.busy; $('syncOut').disabled=this.authBusy;
+    $('syncSend').disabled=this.authBusy; $('syncCodeForm').querySelector('button').disabled=this.authBusy;
+    $('syncLast').textContent='Last synced: '+(this.meta.last?new Date(this.meta.last).toLocaleString():'never');
+    $('syncStatus').textContent=this.status;
+    $('syncRecovery').hidden=!localStorage.getItem(SYNC_LOCAL.recovery);
+  },
+  async request(path,options={},token){
+    const controller=new AbortController(), timeout=setTimeout(()=>controller.abort(),20000);
+    try {
+      const r=await fetch(SYNC_CONFIG.url+path,{...options,headers:{apikey:SYNC_CONFIG.key,'Content-Type':'application/json',...(token?{Authorization:'Bearer '+token}:{}),...options.headers},signal:controller.signal,credentials:'omit',cache:'no-store'});
+      const text=await r.text(); let data; try {data=JSON.parse(text);} catch(e){data=null;}
+      if (!r.ok){ const error=new Error(data && (data.msg||data.message||data.error_description||data.error) || 'Sync service returned '+r.status); error.status=r.status; throw error; }
+      return data;
+    } finally {clearTimeout(timeout);}
+  },
+  async sendLink(email){
+    if (!/^https?:$/.test(location.protocol)) throw new Error('Open the hosted TankMix app to sign in.');
+    const redirect=location.origin+location.pathname;
+    await this.request('/auth/v1/otp?redirect_to='+encodeURIComponent(redirect),{method:'POST',body:JSON.stringify({email,create_user:true})});
+    $('syncCodeForm').hidden=false;
+    this.setStatus('Check your email for a sign-in link. Open it in this device’s browser. Requests are rate limited; wait at least 60 seconds before resending.');
+  },
+  async verifyCode(email,token){
+    const data=await this.request('/auth/v1/verify',{method:'POST',body:JSON.stringify({email,token,type:'email'})});
+    await this.accept(data);
+  },
+  async accept(data){
+    if (!data || !data.access_token || !data.refresh_token) throw new Error('Incomplete sign-in response. Request a new link.');
+    const user=await this.request('/auth/v1/user',{},data.access_token);
+    if (!user || !user.id) throw new Error('Could not verify signed-in user.');
+    if (this.meta.owner && this.meta.owner!==user.id){
+      // NEVER upload the previous account's local data to a different account.
+      if (!confirm('This device has data from another TankMix account. Archive it locally and switch accounts? The other account’s data will not be uploaded.')) throw new Error('Account switch canceled.');
+      const archive={}; for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(syncEligible(k)) archive[k]=localStorage.getItem(k);}
+      localStorage.setItem('tankmix.archive.'+this.meta.owner,JSON.stringify({data:archive,meta:this.meta}));
+      Object.keys(archive).forEach(k=>localStorage.removeItem(k));
+      const stored=syncRead('tankmix.archive.'+user.id,null);
+      if (stored){ Object.entries(stored.data).forEach(([k,v])=>localStorage.setItem(k,v)); this.meta=stored.meta; }
+      else this.meta={owner:user.id,rows:{},first:false,last:null};
+      localStorage.removeItem(SYNC_LOCAL.recovery);
+      LOGF.editing=null; closeDlg(); if (PV.open) closePrintView(true);
+      this.hydrate();
+    }
+    if (!this.meta.owner){
+      const snapshot={};for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(syncEligible(k))snapshot[k]=localStorage.getItem(k);}
+      // Recovery is device-only; auth session and sync metadata are excluded.
+      localStorage.setItem(SYNC_LOCAL.recovery,JSON.stringify(snapshot));
+      this.meta.owner=user.id; this.meta.first=false;
+    }
+    this.session={access_token:data.access_token,refresh_token:data.refresh_token,expires_at:data.expires_at||Math.floor(Date.now()/1000)+(data.expires_in||3600),user:{id:user.id,email:user.email}};
+    localStorage.setItem(SYNC_LOCAL.session,JSON.stringify(this.session));
+    this.storeMeta(); this.render(); await this.run(true);
+  },
+  async token(){
+    // All sync/refresh calls are serialized across tabs by navigator.locks when available.
+    const stored=syncRead(SYNC_LOCAL.session,null);
+    if (!stored || !this.session || stored.user.id!==this.session.user.id) throw new Error('Session changed. Sign in again.');
+    this.session=stored;
+    if (stored.expires_at*1000>Date.now()+60000) return stored.access_token;
+    const data=await this.request('/auth/v1/token?grant_type=refresh_token',{method:'POST',body:JSON.stringify({refresh_token:stored.refresh_token})});
+    if(data.user && data.user.id!==stored.user.id) throw new Error('Refreshed session belongs to another account. Sign out and reload.');
+    this.session={...stored,...data,expires_at:data.expires_at||Math.floor(Date.now()/1000)+(data.expires_in||3600),user:stored.user};
+    localStorage.setItem(SYNC_LOCAL.session,JSON.stringify(this.session));return this.session.access_token;
+  },
+  async signOut(){
+    if (this.busy) throw new Error('Wait for the current sync to finish before signing out.');
+    const sess=this.session;
+    if (sess && navigator.onLine) try {await this.request('/auth/v1/logout?scope=local',{method:'POST'},sess.access_token);}catch(e){};
+    this.session=null; clearTimeout(this.timer); localStorage.removeItem(SYNC_LOCAL.session);
+    this.setStatus('Signed out. Local data is kept on this device; automatic sync is off.');
+  },
+  hydrate(){
+    this.restoring=true;
+    try {
+      S.settings=Object.assign({units:'us',theme:'light',jar:32,wxSrc:'openmeteo',wxLoc:null,mapLayer:'sat',lastFieldLoc:null},LS.get('settings',{}));
+      S.mix=LS.get('current',null)||blankMix();
+      ['mixes','library','log','fields'].forEach(k=>{S[k]=LS.get(k,[]);});
+      WXS.data=LS.get('wxLast',null); WXS.err='';
+      S.epaCache=LS.get('epaCache',{}); S.cal=Object.assign({},CALD,LS.get('cal',{}));
+      TP.st=Object.assign({accounts:[],prefs:{},def:null,sel:null,seen:{}},LS.get('tempest',{}));
+      WU.st=Object.assign({accounts:[],prefs:{},def:null,sel:null,seen:{}},LS.get('wu',{}));
+      applyTheme();renderSettings();loadMixIntoForm();renderSaved();renderLibrary();renderCal();
+      // Do not tear down the log form/maps while someone is editing a log.
+      if (!LOGF.editing) renderLogForm();renderLog();renderFields();renderTempest();renderWu();renderWx();
+      $('wxSrc').value=S.settings.wxSrc;
+    } finally {this.restoring=false;}
+  },
+  async run(manual=false){
+    if (!this.session) return;
+    if (this.busy){this.again=true;return;}
+    if (!navigator.onLine){this.setStatus('Offline — changes saved here; sync will retry when online.');return;}
+    const active=document.activeElement;
+    if (!manual && active && /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName)){this.schedule(5000);return;}
+    this.busy=true;this.setStatus('Syncing…');
+    try {
+      const operation=async()=>{
+        // Refresh metadata in case another tab completed a sync while we awaited the lock.
+        const shared=syncRead(SYNC_LOCAL.meta,this.meta);
+        if (shared.owner!==this.session.user.id) throw new Error('Account changed in another tab. Reload before syncing.');
+        this.meta=shared;this.scan();
+        const token=await this.token(), owner=this.session.user.id;
+        const base='/rest/v1/user_data?user_id=eq.'+encodeURIComponent(owner);
+        // Heartbeats fetch only timestamps. Large weather/EPA snapshots transfer only when changed.
+        let cloud=await this.request(base+'&select=key,updated_at,deleted',{},token);
+        if (!Array.isArray(cloud)) throw new Error('Invalid sync response.');
+        this.scan();
+        const needed=cloud.filter(r=>syncEligible(r.key) && (!this.meta.first || !this.meta.rows[r.key] || syncTime(r)>syncTime(this.meta.rows[r.key]) || (syncTime(r)===syncTime(this.meta.rows[r.key]) && this.meta.rows[r.key].dirty))).map(r=>r.key);
+        let pulled=[];
+        if(needed.length){
+          const filter='('+needed.map(k=>'"'+k.replace(/\\/g,'\\\\').replace(/"/g,'\\"')+'"').join(',')+')';
+          pulled=await this.request(base+'&select=key,value,updated_at,deleted&key=in.'+encodeURIComponent(filter),{},token);
+          if(!Array.isArray(pulled))throw new Error('Invalid sync response.');
+        }
+        const cloudMap=new Map(cloud.filter(r=>syncEligible(r.key)).map(r=>[r.key,r]));
+        pulled.forEach(r=>cloudMap.set(r.key,r));
+        this.scan(); // capture edits made while the pull was in flight
+        const local=this.rows(), batch=[];
+        for(const l of local){
+          const c=cloudMap.get(l.key);
+          if (!this.meta.first && c){
+            const merged=syncFirstMerge(l,c);
+            // Stamp reconciliation even when it equals cloud, so an older local subset is never re-pushed.
+            batch.push({...merged,updated_at:new Date(Math.max(Date.now(),syncTime(l)+1,syncTime(c)+1)).toISOString()});
+          } else if (!c || syncTime(l)>syncTime(c)) batch.push(l);
+        }
+        // Client clocks far in the future cannot overwrite everything forever.
+        if(batch.some(r=>syncTime(r)>Date.now()+240000)) throw new Error('Device clock is ahead. Correct the date/time before syncing.');
+        const echoed=batch.length?await this.request('/rest/v1/rpc/tankmix_sync',{method:'POST',body:JSON.stringify({p_rows:batch})},token):[];
+        if (!Array.isArray(echoed)) throw new Error('Invalid sync response.');
+        if(batch.some(l=>!echoed.some(r=>r.key===l.key)))throw new Error('Sync server rejected a timestamp. Check this device’s date and time');
+        const results=new Map(pulled.map(r=>[r.key,r]));echoed.forEach(r=>results.set(r.key,r));
+        const result=[...results.values()];
+        if (!this.session || this.session.user.id!==owner) return;
+        this.scan(); // do not overwrite a concurrent local edit
+        const sent=new Map(batch.map(r=>[r.key,r]));let changed=false;
+        for(const row of result){
+          if (!syncEligible(row.key) || row.user_id && row.user_id!==owner) continue;
+          const m=this.meta.rows[row.key], requestRow=sent.get(row.key);
+          // A local edit after sending must win over our own echoed merge snapshot.
+          if (m && requestRow && syncTime(m)>syncTime(local.find(r=>r.key===row.key)) && m.digest!==syncDigest(JSON.stringify(requestRow.value))) {m.updated_at=new Date(Math.max(Date.now(),syncTime(row)+1)).toISOString();this.again=true;continue;}
+          if (m && syncTime(m)>syncTime(row)) continue;
+          const raw=row.deleted?null:JSON.stringify(row.value);
+          if (raw!==localStorage.getItem(row.key)){
+            if(row.deleted)localStorage.removeItem(row.key);else localStorage.setItem(row.key,raw);
+            changed=true;
+          }
+          this.meta.rows[row.key]={updated_at:row.updated_at,dirty:false,deleted:!!row.deleted,digest:raw===null?null:syncDigest(raw)};
+        }
+        this.meta.first=true;this.meta.last=new Date().toISOString();this.storeMeta();
+        if(changed)this.hydrate();
+        this.setStatus('Up to date. Changes sync automatically while signed in.');
+      };
+      if(navigator.locks) await navigator.locks.request('tankmix-account-sync',operation); else await operation();
+    } catch(e){
+      if(e.status===400 || e.status===401){
+        // Keep pending changes and owner metadata; require authentication again.
+        this.session=null;localStorage.removeItem(SYNC_LOCAL.session);
+        this.setStatus('Sign in again to resume sync. Local changes are safe.');
+      } else this.setStatus((e.name==='AbortError'?'Sync timed out':e.message||'Sync unavailable')+'. Local changes are safe; will retry.');
+    } finally {
+      this.busy=false;this.render();if(this.again){this.again=false;this.schedule(1500);}
+    }
+  },
+  recovery(){
+    const data=syncRead(SYNC_LOCAL.recovery,null);if(!data)return;
+    const get=(k,d)=>{try{return JSON.parse(data['tm.'+k])||d;}catch(e){return d;}};
+    const body={rawLocalStorage:data,app:'tankmix-pro',version:APP_VERSION,exported:new Date().toISOString(),settings:get('settings',{}),current:get('current',null),mixes:get('mixes',[]),library:get('library',[]),log:get('log',[]),fields:get('fields',[]),tempest:get('tempest',{}),wu:get('wu',{})};
+    const a=document.createElement('a');a.download='tankmix-pre-sync-recovery-'+localDate()+'.json';a.href=URL.createObjectURL(new Blob([JSON.stringify(body)],{type:'application/json'}));a.click();setTimeout(()=>URL.revokeObjectURL(a.href),30000);
+  },
+  async init(){
+    this.render();
+    const guarded=fn=>async e=>{e.preventDefault();this.authBusy=true;try{await fn();}catch(err){this.setStatus(err.message||'Sign-in failed.');}finally{this.authBusy=false;this.render();}};
+    $('syncLoginForm').onsubmit=guarded(async()=>{if(!$('syncConsent').checked)return;await this.sendLink($('syncEmail').value.trim());});
+    $('syncCodeForm').onsubmit=guarded(async()=>{if(!$('syncConsent').checked)return;await this.verifyCode($('syncEmail').value.trim(),$('syncCode').value.trim());$('syncCode').value='';});
+    $('syncNow').onclick=()=>this.run(true);
+    $('syncOut').onclick=guarded(()=>this.signOut());
+    $('syncRecovery').onclick=()=>{if(confirm('Recovery backup includes weather API keys. Save it privately?'))this.recovery();};
+    window.addEventListener('online',()=>this.run());
+    window.addEventListener('focus',()=>this.run());
+    document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')this.run();});
+    window.addEventListener('storage',e=>{
+      if (e.key===SYNC_LOCAL.session){const s=syncRead(SYNC_LOCAL.session,null);if(!s){this.session=null;this.render();}else if(this.session && s.user.id!==this.session.user.id){this.session=null;this.setStatus('Account changed in another tab. Reload this page.');}}
+      else if(syncEligible(e.key)){this.hydrate();this.changed();}
+    });
+    setInterval(()=>{if(this.session && document.visibilityState==='visible')this.run();},30000);
+    try {
+      const hash=new URLSearchParams(location.hash.slice(1));
+      if(hash.has('access_token') || hash.has('error_description')){
+        history.replaceState(history.state,'',location.pathname+location.search);
+        if(hash.has('error_description'))throw new Error(hash.get('error_description'));
+        await this.accept({access_token:hash.get('access_token'),refresh_token:hash.get('refresh_token'),expires_in:+hash.get('expires_in')||3600});
+      } else {
+        this.session=syncRead(SYNC_LOCAL.session,null);
+        if (this.session && this.meta.owner===this.session.user.id){this.render();await this.run();}
+        else {this.session=null;this.render();}
+      }
+    } catch(e){this.setStatus(e.message||'Could not sign in. Request a new link.');}
+  }
+};
+TM.sync=SYNC;
+TM.syncChanged=()=>SYNC.changed();
+TM.syncInit=()=>SYNC.init();
+TM.syncLogic={eligible:syncEligible,firstMerge:syncFirstMerge,sameItem:syncSameItem,stable:syncStable};
 
 /* ---------- Spray log ---------- */
 const LOGF = { q:"", gf:"", editing:null };
@@ -4408,6 +4737,7 @@ function init(){
   if (typeof wsdaLoad==="function") wsdaLoad().catch(()=>{});
   bindMixInputs(); bindSaved(); bindLibrary(); bindSettings(); bindPrint();
   loadMixIntoForm(); renderSaved(); renderLibrary(); renderCal(); renderLogView();
+  TM.syncInit();
   window.addEventListener("afterprint", ()=>{ TM.printMode = null; });
   if ("serviceWorker" in navigator && /^https?:$/.test(location.protocol) && document.querySelector('link[rel="manifest"]') && !window.TM_PREVIEW){
     // the new worker activates right away (skipWaiting); when it takes over a page that was already running, offer a refresh
