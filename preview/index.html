@@ -1032,19 +1032,27 @@ svg.leaflet-image-layer.leaflet-interactive path {
     <h2>Account / Sync</h2>
     <div id="syncIdentity" class="small muted">Not signed in — data stays on this device.</div>
     <form id="syncLoginForm" class="grid" style="margin-top:10px">
-      <div><label class="f" for="syncEmail">Email</label><input id="syncEmail" type="email" autocomplete="email" required placeholder="Your email address"></div>
+      <div><label class="f" for="syncEmail">Email</label><input id="syncEmail" type="email" autocomplete="username" required placeholder="Your email address"></div>
+      <div><label class="f" for="syncPassword">Password</label><input id="syncPassword" type="password" autocomplete="current-password" required placeholder="Your password"></div>
       <label class="chk"><input id="syncConsent" type="checkbox" required> Sync my TankMix data, including personal weather API keys, to my private account.</label>
-      <button class="btn" id="syncSend" type="submit">Email sign-in link</button>
-      <p class="tiny muted" style="margin:0">Open the link on this device/browser. No password needed. If your email includes a code, you can enter it below instead.</p>
-    </form>
-    <form id="syncCodeForm" class="grid" hidden style="margin-top:10px">
-      <div><label class="f" for="syncCode">Email one-time code (if supplied)</label><input id="syncCode" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6,10}" maxlength="10"></div>
-      <button class="btn alt" type="submit">Verify code</button>
+      <div class="grid g2"><button class="btn" id="syncSignIn" type="submit">Sign in</button><button class="btn alt" id="syncCreate" type="submit" name="authAction" value="create">Create account</button></div>
+      <button class="btn alt sm" id="syncForgot" type="button">Forgot password?</button>
+      <p class="tiny muted" style="margin:0">Already used TankMix email sign-in, but never set a password? Use <b>Forgot password?</b> once to set one. Then sign in on any device without an email link.</p>
     </form>
     <div id="syncActions" hidden style="margin-top:10px">
       <div class="grid g2"><button class="btn" id="syncNow" type="button">Sync now</button><button class="btn alt" id="syncOut" type="button">Sign out</button></div>
+      <button class="btn alt sm" id="syncChange" type="button" style="margin-top:10px">Change password</button>
       <p class="tiny muted">Offline edits stay here and sync when you reconnect. Newest change wins per key. Signing out keeps local data on this device.</p>
     </div>
+    <form id="syncPasswordForm" class="grid" hidden style="margin-top:12px">
+      <h3 id="syncPasswordTitle">Set a new password</h3>
+      <p id="syncPasswordNote" class="tiny muted" style="margin:0"></p>
+      <div id="syncCurrentRow"><label class="f" for="syncCurrentPassword">Current password</label><input id="syncCurrentPassword" type="password" autocomplete="current-password"></div>
+      <div><label class="f" for="syncNewPassword">New password</label><input id="syncNewPassword" type="password" autocomplete="new-password" minlength="8" required placeholder="At least 8 characters"></div>
+      <div><label class="f" for="syncConfirmPassword">Confirm new password</label><input id="syncConfirmPassword" type="password" autocomplete="new-password" minlength="8" required></div>
+      <label class="chk" id="syncResetConsentRow"><input id="syncResetConsent" type="checkbox"> Sync my TankMix data, including personal weather API keys, to this private account after setting my password.</label>
+      <div class="grid g2"><button class="btn" id="syncPasswordSave" type="submit">Set password</button><button class="btn alt" id="syncPasswordCancel" type="button">Cancel</button></div>
+    </form>
     <p id="syncLast" class="tiny muted" style="margin:8px 0 0">Last synced: never</p>
     <p id="syncStatus" class="small" role="status" aria-live="polite"></p>
     <button class="btn alt sm" id="syncRecovery" type="button" hidden>Download pre-sync recovery backup</button>
@@ -1060,7 +1068,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
         <div class="tiny muted" id="wxSrcNote" style="margin-top:4px">Open-Meteo is a free model forecast. Choose Tempest or Weather Underground to use live readings from your own personal weather stations.</div>
         <div id="tpPanel" class="tppanel" hidden></div>
         <div id="wuPanel" class="tppanel" hidden></div></div>
-      <p class="tiny muted" style="margin:0">Data is stored only in this browser (localStorage). Use Saved › Backup to move it to another device. <span id="verLbl"></span></p>
+      <p class="tiny muted" style="margin:0">Data stays in this browser (localStorage); Account / Sync optionally syncs it across devices. Saved › Backup still works. <span id="verLbl"></span></p>
     </div>
   </div>
 </section>
@@ -1131,7 +1139,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
    3. Storage (localStorage)
    4. UI: Mix, Order/Jar test, Lookup (EPA), Saved, Print
    ===================================================================== */
-const APP_VERSION = "2.12.0";
+const APP_VERSION = "2.12.1";
 const TM = window.TM = {};
 
 /* ---------- 1. Constants ---------- */
@@ -4070,7 +4078,7 @@ const SYNC_CONFIG = Object.freeze({
   url: 'https://qcwneqqfiyuouokklnpg.supabase.co',
   key: 'sb_publishable_PkfyLYIV_ZlA408XlTBnoQ_rV8e_olB'
 });
-const SYNC_LOCAL = {session:'tankmix.auth.v1', meta:'tankmix.sync.v1', recovery:'tankmix.recovery.v1'};
+const SYNC_LOCAL = {session:'tankmix.auth.v1', meta:'tankmix.sync.v1', recovery:'tankmix.recovery.v1', password:'tankmix.passwordRecovery.v1'};
 const syncCopy = x => JSON.parse(JSON.stringify(x));
 const syncRead = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) || d; } catch(e){ return d; } };
 const syncEligible = k => typeof k==='string' && k.startsWith('tm.') && !['tm.syncMeta','tm.syncSession'].includes(k);
@@ -4132,7 +4140,7 @@ function syncFirstMerge(local,cloud){
 
 const SYNC = {
   session:null, meta:syncRead(SYNC_LOCAL.meta,{owner:null,rows:{},first:false,last:null}),
-  busy:false, again:false, timer:null, restoring:false, status:'', authBusy:false,
+  busy:false, again:false, timer:null, restoring:false, status:'', authBusy:false, passwordMode:null, passwordSession:null, emailWaitUntil:0,
   storeMeta(){ localStorage.setItem(SYNC_LOCAL.meta,JSON.stringify(this.meta)); },
   setStatus(s){ this.status=s; this.render(); },
   scan(){
@@ -4163,12 +4171,18 @@ const SYNC = {
   },
   render(){
     if (!$('syncIdentity')) return;
-    const signed=!!this.session;
-    $('syncIdentity').textContent=signed?'Signed in as '+(this.session.user.email||'your account'):'Not signed in — data stays on this device.';
-    $('syncLoginForm').hidden=signed; $('syncActions').hidden=!signed;
-    if (signed) $('syncCodeForm').hidden=true;
-    $('syncNow').disabled=this.busy; $('syncOut').disabled=this.authBusy;
-    $('syncSend').disabled=this.authBusy; $('syncCodeForm').querySelector('button').disabled=this.authBusy;
+    const signed=!!this.session, recovering=this.passwordMode==='recovery';
+    $('syncIdentity').textContent=recovering?'Set a password for '+(this.passwordSession?.user.email||'your account'):signed?'Signed in as '+(this.session.user.email||'your account'):'Not signed in — data stays on this device.';
+    $('syncLoginForm').hidden=signed||recovering; $('syncActions').hidden=!signed||recovering;
+    $('syncPasswordForm').hidden=!this.passwordMode;
+    $('syncCurrentRow').hidden=recovering;
+    $('syncCurrentPassword').required=this.passwordMode==='change'; $('syncCurrentPassword').disabled=recovering;
+    $('syncResetConsentRow').hidden=!recovering; $('syncResetConsent').required=recovering; $('syncResetConsent').disabled=!recovering;
+    $('syncPasswordTitle').textContent=recovering?'Set a new password':'Change password';
+    $('syncPasswordSave').textContent=recovering?'Set password':'Change password';
+    $('syncPasswordNote').textContent=recovering?'Your recovery link is verified. Set your password here; your local data will not sync until you finish and agree below.':'Use your current password and choose a new one. If you never set a password, sign out and use Forgot password?';
+    ['syncSignIn','syncCreate','syncForgot','syncOut','syncChange','syncPasswordSave','syncPasswordCancel'].forEach(id=>$(id).disabled=this.authBusy);
+    $('syncNow').disabled=this.busy||this.authBusy;
     $('syncLast').textContent='Last synced: '+(this.meta.last?new Date(this.meta.last).toLocaleString():'never');
     $('syncStatus').textContent=this.status;
     $('syncRecovery').hidden=!localStorage.getItem(SYNC_LOCAL.recovery);
@@ -4178,23 +4192,86 @@ const SYNC = {
     try {
       const r=await fetch(SYNC_CONFIG.url+path,{...options,headers:{apikey:SYNC_CONFIG.key,'Content-Type':'application/json',...(token?{Authorization:'Bearer '+token}:{}),...options.headers},signal:controller.signal,credentials:'omit',cache:'no-store'});
       const text=await r.text(); let data; try {data=JSON.parse(text);} catch(e){data=null;}
-      if (!r.ok){ const error=new Error(data && (data.msg||data.message||data.error_description||data.error) || 'Sync service returned '+r.status); error.status=r.status; throw error; }
+      if (!r.ok){ const error=new Error(data && (data.msg||data.message||data.error_description||data.error) || 'Sync service returned '+r.status); error.status=r.status; error.code=data && (data.error_code||data.code); throw error; }
       return data;
     } finally {clearTimeout(timeout);}
   },
-  async sendLink(email){
-    if (!/^https?:$/.test(location.protocol)) throw new Error('Open the hosted TankMix app to sign in.');
-    const redirect=location.origin+location.pathname;
-    await this.request('/auth/v1/otp?redirect_to='+encodeURIComponent(redirect),{method:'POST',body:JSON.stringify({email,create_user:true})});
-    $('syncCodeForm').hidden=false;
-    this.setStatus('Check your email for a sign-in link. Open it in this device’s browser. Requests are rate limited; wait at least 60 seconds before resending.');
+  authError(err){
+    const code=err.code||'', message=err.message||'';
+    if(err.status===429 || /rate_limit|over_request/.test(code) || /rate limit/i.test(message))return 'Supabase rate limit reached. Email requests share a small project-wide quota (usually 2 per hour on the default email service). Wait for it to reset; do not keep retrying. Password sign-in does not send email.';
+    if(this.passwordMode==='change' && (code==='invalid_credentials' || /current password.*incorrect/i.test(message)))return 'Current password is incorrect. Try again, or sign out and use Forgot password?.';
+    if(code==='invalid_credentials' || /invalid login credentials/i.test(message))return 'Email or password is incorrect. If you previously used an email link and have no password, use Forgot password? to set one.';
+    if(code==='email_not_confirmed' || /email not confirmed/i.test(message))return 'Email is not confirmed. Open your signup confirmation email, then sign in. Check spam; do not repeatedly create the account. Forgot password? is for setting or resetting a password.';
+    if(['user_already_exists','email_exists'].includes(code) || /already (registered|exists)/i.test(message))return 'This email already has an account. Sign in, or use Forgot password? to set/reset its password. Create account does not replace an existing account.';
+    if(/otp_expired|flow_state_expired/.test(code) || /expired|invalid.*(link|token)/i.test(message))return 'This email link has expired or was already used. Use Forgot password? for a fresh recovery link after the email cooldown.';
+    if(/reauthentication|session_not_found|bad_jwt|session_expired|refresh_token_not_found|refresh_token_already_used/.test(code))return 'For security, sign in again before changing your password, or sign out and use Forgot password?.';
+    if(code==='same_password')return 'Choose a different password from your current password.';
+    if(err.name==='AbortError')return 'Sign-in service timed out. Local data is safe; try again when connected.';
+    return message||'Could not sign in. Local data is safe.';
   },
-  async verifyCode(email,token){
-    const data=await this.request('/auth/v1/verify',{method:'POST',body:JSON.stringify({email,token,type:'email'})});
+  redirect(){
+    if(!/^https?:$/.test(location.protocol))throw new Error('Open the hosted TankMix app to manage your account.');
+    return encodeURIComponent(location.origin+location.pathname);
+  },
+  async signIn(email,password){
+    const data=await this.request('/auth/v1/token?grant_type=password',{method:'POST',body:JSON.stringify({email,password})});
     await this.accept(data);
   },
+  async createAccount(email,password){
+    if(password.length<8)throw new Error('Use at least 8 characters for a new password.');
+    if(Date.now()<this.emailWaitUntil)throw new Error('Wait at least 60 seconds between signup/recovery email requests.');
+    const data=await this.request('/auth/v1/signup?redirect_to='+this.redirect(),{method:'POST',body:JSON.stringify({email,password})});
+    if(data && data.access_token){await this.accept(data);return;}
+    this.emailWaitUntil=Date.now()+60000;
+    const user=data && (data.user||data);
+    this.setStatus(user && Array.isArray(user.identities) && !user.identities.length?'This email already has an account. Use Forgot password? to set/reset its password; Create account cannot set an existing account’s password.':'Check your email to confirm your new account, then sign in with your password. If this email already has an account, use Forgot password? instead. Signup/recovery emails are rate limited.');
+  },
+  async forgotPassword(email){
+    if(Date.now()<this.emailWaitUntil)throw new Error('Wait at least 60 seconds between signup/recovery email requests.');
+    await this.request('/auth/v1/recover?redirect_to='+this.redirect(),{method:'POST',body:JSON.stringify({email})});
+    this.emailWaitUntil=Date.now()+60000;
+    this.setStatus('If this email has an account, a password recovery email is on its way. Open the newest link to set your password. Recovery needs the TankMix URL saved in Supabase URL Configuration (not localhost:3000). Wait at least 60 seconds before requesting another; the project email quota may require up to an hour.');
+  },
+  clearPasswords(){['syncPassword','syncCurrentPassword','syncNewPassword','syncConfirmPassword'].forEach(id=>$(id).value='');},
+  cancelPassword(){
+    this.passwordMode=null;this.passwordSession=null;localStorage.removeItem(SYNC_LOCAL.password);
+    const existing=syncRead(SYNC_LOCAL.session,null);if(!this.session && existing && existing.user.id===this.meta.owner)this.session=existing;
+    this.clearPasswords();$('syncResetConsent').checked=false;this.render();
+  },
+  async beginRecovery(data){
+    if(!data || !data.access_token || !data.refresh_token)throw new Error('Incomplete recovery link. Use Forgot password? for a fresh link.');
+    const user=await this.request('/auth/v1/user',{},data.access_token);
+    if(!user || !user.id)throw new Error('Could not verify the recovery link.');
+    this.passwordSession={access_token:data.access_token,refresh_token:data.refresh_token,expires_at:data.expires_at||Math.floor(Date.now()/1000)+(data.expires_in||3600),user:{id:user.id,email:user.email}};
+    localStorage.setItem(SYNC_LOCAL.password,JSON.stringify(this.passwordSession));
+    this.passwordMode='recovery';this.clearPasswords();this.setStatus('Recovery link verified. Choose a password below. No cloud data has been changed.');
+  },
+  async savePassword(password,confirmation,current){
+    if(password.length<8)throw new Error('Use at least 8 characters for the new password.');
+    if(password!==confirmation)throw new Error('New passwords do not match.');
+    const recovery=this.passwordMode==='recovery';
+    if(recovery && !$('syncResetConsent').checked)throw new Error('Agree to private sync before continuing.');
+    if(!recovery && (!this.session || !current))throw new Error('Enter your current password, or use Forgot password? after signing out.');
+    let token;
+    if(recovery){
+      const s=this.passwordSession;if(!s)throw new Error('Recovery session expired. Use Forgot password? again.');
+      if(s.expires_at*1000<Date.now()+60000){
+        const d=await this.request('/auth/v1/token?grant_type=refresh_token',{method:'POST',body:JSON.stringify({refresh_token:s.refresh_token})});
+        if(d.user && d.user.id!==s.user.id)throw new Error('Recovery account changed. Request a new recovery link.');
+        this.passwordSession={...s,...d,user:s.user,expires_at:d.expires_at||Math.floor(Date.now()/1000)+(d.expires_in||3600)};
+        localStorage.setItem(SYNC_LOCAL.password,JSON.stringify(this.passwordSession));
+      }
+      token=this.passwordSession.access_token;
+    }else token=await this.token();
+    const data=await this.request('/auth/v1/user',{method:'PUT',body:JSON.stringify({password,...(!recovery?{current_password:current}:{})})},token);
+    if(!data || data.id!==(recovery?this.passwordSession.user.id:this.session.user.id))throw new Error('Could not verify password update. Sign in again.');
+    const saved=this.passwordSession;
+    this.cancelPassword();
+    if(recovery)await this.accept(saved);
+    this.setStatus('Password saved. You can now sign in on any device with your email and password.');
+  },
   async accept(data){
-    if (!data || !data.access_token || !data.refresh_token) throw new Error('Incomplete sign-in response. Request a new link.');
+    if (!data || !data.access_token || !data.refresh_token) throw new Error('Incomplete sign-in response. Try signing in again.');
     const user=await this.request('/auth/v1/user',{},data.access_token);
     if (!user || !user.id) throw new Error('Could not verify signed-in user.');
     if (this.meta.owner && this.meta.owner!==user.id){
@@ -4235,7 +4312,7 @@ const SYNC = {
     if (this.busy) throw new Error('Wait for the current sync to finish before signing out.');
     const sess=this.session;
     if (sess && navigator.onLine) try {await this.request('/auth/v1/logout?scope=local',{method:'POST'},sess.access_token);}catch(e){};
-    this.session=null; clearTimeout(this.timer); localStorage.removeItem(SYNC_LOCAL.session);
+    this.cancelPassword();this.session=null; clearTimeout(this.timer); localStorage.removeItem(SYNC_LOCAL.session);
     this.setStatus('Signed out. Local data is kept on this device; automatic sync is off.');
   },
   hydrate(){
@@ -4255,7 +4332,7 @@ const SYNC = {
     } finally {this.restoring=false;}
   },
   async run(manual=false){
-    if (!this.session) return;
+    if (!this.session || this.passwordMode==='recovery') return;
     if (this.busy){this.again=true;return;}
     if (!navigator.onLine){this.setStatus('Offline — changes saved here; sync will retry when online.');return;}
     const active=document.activeElement;
@@ -4338,9 +4415,19 @@ const SYNC = {
   },
   async init(){
     this.render();
-    const guarded=fn=>async e=>{e.preventDefault();this.authBusy=true;try{await fn();}catch(err){this.setStatus(err.message||'Sign-in failed.');}finally{this.authBusy=false;this.render();}};
-    $('syncLoginForm').onsubmit=guarded(async()=>{if(!$('syncConsent').checked)return;await this.sendLink($('syncEmail').value.trim());});
-    $('syncCodeForm').onsubmit=guarded(async()=>{if(!$('syncConsent').checked)return;await this.verifyCode($('syncEmail').value.trim(),$('syncCode').value.trim());$('syncCode').value='';});
+    const guarded=fn=>async e=>{e.preventDefault();if(this.authBusy)return;this.authBusy=true;this.render();try{await fn(e);}catch(err){this.setStatus(this.authError(err));}finally{this.authBusy=false;this.render();}};
+    $('syncLoginForm').onsubmit=guarded(async e=>{
+      if(!$('syncConsent').checked)return;
+      const email=$('syncEmail').value.trim(), password=$('syncPassword').value;
+      try{if(e.submitter?.value==='create')await this.createAccount(email,password);else await this.signIn(email,password);}finally{$('syncPassword').value='';}
+    });
+    $('syncForgot').onclick=guarded(async()=>{
+      $('syncPassword').value='';if(!$('syncEmail').reportValidity())return;
+      await this.forgotPassword($('syncEmail').value.trim());
+    });
+    $('syncChange').onclick=()=>{this.passwordMode='change';this.clearPasswords();this.render();$('syncNewPassword').focus();};
+    $('syncPasswordForm').onsubmit=guarded(async()=>{try{await this.savePassword($('syncNewPassword').value,$('syncConfirmPassword').value,$('syncCurrentPassword').value);}finally{this.clearPasswords();}});
+    $('syncPasswordCancel').onclick=()=>{this.cancelPassword();this.setStatus('Password change canceled. Local data is unchanged.');};
     $('syncNow').onclick=()=>this.run(true);
     $('syncOut').onclick=guarded(()=>this.signOut());
     $('syncRecovery').onclick=()=>{if(confirm('Recovery backup includes weather API keys. Save it privately?'))this.recovery();};
@@ -4354,16 +4441,27 @@ const SYNC = {
     setInterval(()=>{if(this.session && document.visibilityState==='visible')this.run();},30000);
     try {
       const hash=new URLSearchParams(location.hash.slice(1));
-      if(hash.has('access_token') || hash.has('error_description')){
+      if(hash.has('access_token') || hash.has('error_description') || hash.has('error')){
         history.replaceState(history.state,'',location.pathname+location.search);
-        if(hash.has('error_description'))throw new Error(hash.get('error_description'));
-        await this.accept({access_token:hash.get('access_token'),refresh_token:hash.get('refresh_token'),expires_in:+hash.get('expires_in')||3600});
+        showTab('set');
+        if(hash.has('error_description') || hash.has('error')){
+          const err=new Error(hash.get('error_description')||hash.get('error'));err.code=hash.get('error_code');throw err;
+        }
+        const data={access_token:hash.get('access_token'),refresh_token:hash.get('refresh_token'),expires_in:+hash.get('expires_in')||3600};
+        if(hash.get('type')==='recovery')await this.beginRecovery(data);
+        else await this.accept(data); // signup confirmation; also tolerates an already-issued v2.12.0 link
       } else {
-        this.session=syncRead(SYNC_LOCAL.session,null);
-        if (this.session && this.meta.owner===this.session.user.id){this.render();await this.run();}
-        else {this.session=null;this.render();}
+        const recovery=syncRead(SYNC_LOCAL.password,null);
+        if(recovery && recovery.access_token && recovery.user){
+          this.passwordSession=recovery;this.passwordMode='recovery';showTab('set');this.setStatus('Finish setting your password below, or cancel to request a new recovery link.');
+        }else{
+          this.session=syncRead(SYNC_LOCAL.session,null);
+          if (this.session && this.meta.owner===this.session.user.id){this.render();await this.run();}
+          else {this.session=null;this.render();}
+        }
       }
-    } catch(e){this.setStatus(e.message||'Could not sign in. Request a new link.');}
+    } catch(e){this.setStatus(this.authError(e));}
+
   }
 };
 TM.sync=SYNC;
