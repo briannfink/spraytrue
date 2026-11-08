@@ -1,10 +1,10 @@
-// TankMix service worker v2.12.1. Pages: network first (so updates show up), cached copy when offline.
+// SprayTrue service worker v2.13.0. Pages: network first (so updates show up), cached copy when offline.
 // Other app files: cache first. Cross-origin requests (EPA, Open-Meteo, map tiles) and the /preview/ build are never touched.
-const CACHE = "tankmix-2.12.1-6d261b45";
+const CACHE = "spraytrue-2.13.0-dd963b06";
 const SHELL = ["./", "./index.html", "./manifest.webmanifest", "./wsda-products.json", "./icons/icon-192.png", "./icons/icon-512.png", "./icons/maskable-512.png"];
 const PREVIEW = new URL("./preview/", self.registration.scope).pathname;
 self.addEventListener("install", e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL.map(u => new Request(u, {cache: "reload"})))).then(() => self.skipWaiting())); });
-self.addEventListener("activate", e => { e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k.startsWith("tankmix-") && k !== CACHE).map(k => caches.delete(k)))).then(() => self.clients.claim())); });
+self.addEventListener("activate", e => { e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => (k.startsWith("tankmix-") || k.startsWith("spraytrue-")) && k !== CACHE).map(k => caches.delete(k)))).then(() => self.clients.claim())); });
 self.addEventListener("fetch", e => {
   const u = new URL(e.request.url);
   if (e.request.method !== "GET" || u.origin !== self.location.origin || u.pathname.startsWith(PREVIEW)) return;

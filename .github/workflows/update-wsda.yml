@@ -1,31 +1,66 @@
-# Weekly refresh of the WSDA product index used by TankMix search.
-# Copy this workflow into the GitHub Pages deploy repo (briannfink/tankmix) if you
-# want Actions to re-scrape fortress.wa.gov. It is polite (~1 req/s) and only
-# commits when the file changes. Default job scrapes adjuvants + 25(b) + fertilizers;
-# add --section3 for the large Section 3 pesticide list (slow, ~hours).
+# SprayTrue's weekly WSDA refresh. Deploy repo contains built HTML, not source/build.py.
 name: Update WSDA product index
 on:
   schedule:
-    - cron: "17 14 * * 1"   # Mondays 14:17 UTC
+    - cron: "17 14 * * 1"
   workflow_dispatch:
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+concurrency:
+  group: wsda-refresh
+  cancel-in-progress: false
 jobs:
   refresh:
     runs-on: ubuntu-latest
     timeout-minutes: 180
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
       - name: Scrape WSDA public search
         run: python3 tools/update_wsda.py --adjuvants --minrisk --fertilizer
-      - name: Rebuild preview data copy
+      - name: Copy dataset to published live and preview paths
         run: |
-          python3 tools/build.py
+          python3 - <<'PY'
+          from pathlib import Path
+          import shutil, hashlib, re
+          src = Path('data/wsda-products.json')
+          for target in ['wsda-products.json', 'preview/wsda-products.json']:
+              p = Path(target)
+              p.parent.mkdir(parents=True, exist_ok=True)
+              shutil.copy2(src, p)
+          # Match tools/build.py: changed WSDA data must also invalidate the offline shell.
+          index = Path('index.html').read_bytes()
+          version = re.search(rb'APP_VERSION\s*=\s*"([^"]+)"', index).group(1).decode()
+          digest = hashlib.sha1(index + src.read_bytes()).hexdigest()[:8]
+          sw = Path('sw.js')
+          sw.write_text(re.sub(r'const CACHE = "[^"]+";', f'const CACHE = "spraytrue-{version}-{digest}";', sw.read_text()))
+          PY
       - name: Commit if changed
+        id: commit
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/wsda-products.json preview/wsda-products.json dist/wsda-products.json || true
-          git diff --cached --quiet && echo "No WSDA changes" && exit 0
+          git add data/wsda-products.json wsda-products.json preview/wsda-products.json sw.js
+          if git diff --cached --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           git commit -m "chore: refresh WSDA product index"
           git push
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+      # A GITHUB_TOKEN push does not trigger another Pages build: deploy explicitly.
+      - name: Upload refreshed site
+        if: steps.commit.outputs.changed == 'true'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+      - name: Publish refreshed site
+        if: steps.commit.outputs.changed == 'true'
+        id: deployment
+        uses: actions/deploy-pages@v4

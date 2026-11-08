@@ -1,6 +1,6 @@
 {
- "name": "TankMix Calculator",
- "short_name": "TankMix",
+ "name": "SprayTrue",
+ "short_name": "SprayTrue",
  "start_url": "./",
  "scope": "./",
  "display": "standalone",

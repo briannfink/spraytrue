@@ -20,7 +20,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "data" / "wsda-products.json"
 BASE = "https://fortress.wa.gov/agr/pisces/WSDASearch"
-UA = "TankMixDataBot/1.0 (+https://briannfink.github.io/tankmix/; offline dataset refresh; ~1 req/s; contact via GitHub briannfink/tankmix)"
+UA = "SprayTrueDataBot/1.0 (+https://briannfink.github.io/spraytrue/; offline dataset refresh; ~1 req/s; contact via GitHub briannfink/spraytrue)"
 DELAY = 1.0
 
 def log(*a):

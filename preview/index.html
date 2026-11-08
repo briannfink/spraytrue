@@ -6,7 +6,8 @@
 <meta name="theme-color" content="#1f5f3a">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22%3E%3Ctext y=%22.9em%22 font-size=%2290%22%3E%F0%9F%8C%BE%3C/text%3E%3C/svg%3E">
-<title>[Preview] TankMix Pro: Brian's Tank-Mix Calculator</title>
+<meta name="apple-mobile-web-app-title" content="SprayTrue">
+<title>[Preview] SprayTrue: Brian's Tank-Mix Calculator</title>
 <meta name="robots" content="noindex">
 <script>window.TM_PREVIEW=true</script>
 <style>
@@ -886,6 +887,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
 <body>
 <header class="top">
   <div class="title">
+    <div class="appbrand" style="font-size:12px;font-weight:800;letter-spacing:.04em;line-height:1.2;margin-bottom:2px">SprayTrue</div>
     <h1 id="hdrName">New mix</h1>
     <div class="sub" id="hdrSub">Tank-mix calculator</div>
   </div>
@@ -1034,10 +1036,10 @@ svg.leaflet-image-layer.leaflet-interactive path {
     <form id="syncLoginForm" class="grid" style="margin-top:10px">
       <div><label class="f" for="syncEmail">Email</label><input id="syncEmail" type="email" autocomplete="username" required placeholder="Your email address"></div>
       <div><label class="f" for="syncPassword">Password</label><input id="syncPassword" type="password" autocomplete="current-password" required placeholder="Your password"></div>
-      <label class="chk"><input id="syncConsent" type="checkbox" required> Sync my TankMix data, including personal weather API keys, to my private account.</label>
+      <label class="chk"><input id="syncConsent" type="checkbox" required> Sync my SprayTrue data, including personal weather API keys, to my private account.</label>
       <div class="grid g2"><button class="btn" id="syncSignIn" type="submit">Sign in</button><button class="btn alt" id="syncCreate" type="submit" name="authAction" value="create">Create account</button></div>
       <button class="btn alt sm" id="syncForgot" type="button">Forgot password?</button>
-      <p class="tiny muted" style="margin:0">Already used TankMix email sign-in, but never set a password? Use <b>Forgot password?</b> once to set one. Then sign in on any device without an email link.</p>
+      <p class="tiny muted" style="margin:0">Already used SprayTrue email sign-in, but never set a password? Use <b>Forgot password?</b> once to set one. Then sign in on any device without an email link.</p>
     </form>
     <div id="syncActions" hidden style="margin-top:10px">
       <div class="grid g2"><button class="btn" id="syncNow" type="button">Sync now</button><button class="btn alt" id="syncOut" type="button">Sign out</button></div>
@@ -1050,7 +1052,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
       <div id="syncCurrentRow"><label class="f" for="syncCurrentPassword">Current password</label><input id="syncCurrentPassword" type="password" autocomplete="current-password"></div>
       <div><label class="f" for="syncNewPassword">New password</label><input id="syncNewPassword" type="password" autocomplete="new-password" minlength="8" required placeholder="At least 8 characters"></div>
       <div><label class="f" for="syncConfirmPassword">Confirm new password</label><input id="syncConfirmPassword" type="password" autocomplete="new-password" minlength="8" required></div>
-      <label class="chk" id="syncResetConsentRow"><input id="syncResetConsent" type="checkbox"> Sync my TankMix data, including personal weather API keys, to this private account after setting my password.</label>
+      <label class="chk" id="syncResetConsentRow"><input id="syncResetConsent" type="checkbox"> Sync my SprayTrue data, including personal weather API keys, to this private account after setting my password.</label>
       <div class="grid g2"><button class="btn" id="syncPasswordSave" type="submit">Set password</button><button class="btn alt" id="syncPasswordCancel" type="button">Cancel</button></div>
     </form>
     <p id="syncLast" class="tiny muted" style="margin:8px 0 0">Last synced: never</p>
@@ -1133,13 +1135,13 @@ svg.leaflet-image-layer.leaflet-interactive path {
 <script>
 "use strict";
 /* =====================================================================
-   TankMix Pro v2.8.1 (single-file app). Sections:
+   SprayTrue v2.13.0 (single-file app). Sections:
    1. Constants (units, formulation types, mixing-order groups)
    2. Pure calculation engine (TM.calc), unit-tested from node
    3. Storage (localStorage)
    4. UI: Mix, Order/Jar test, Lookup (EPA), Saved, Print
    ===================================================================== */
-const APP_VERSION = "2.12.1";
+const APP_VERSION = "2.13.0";
 const TM = window.TM = {};
 
 /* ---------- 1. Constants ---------- */
@@ -1822,7 +1824,7 @@ function applyTheme(){ document.documentElement.dataset.theme = S.settings.theme
 function renderSettings(){
   document.querySelectorAll("#segUnits button").forEach(b=>b.classList.toggle("on", b.dataset.v===S.settings.units));
   document.querySelectorAll("#segTheme button").forEach(b=>b.classList.toggle("on", b.dataset.v===S.settings.theme));
-  $("verLbl").textContent = "Version "+APP_VERSION+".";
+  $("verLbl").textContent = "SprayTrue · Version "+APP_VERSION+".";
 }
 function setUnits(v){
   if (v===S.settings.units) return; S.settings.units=v;
@@ -1841,7 +1843,7 @@ function bindSettings(){
     // v2.5/v2.7.1: Tempest + WU station choices always; tokens/API keys only when the backup box is ticked
     const withTok = !!($("bkTokens") && $("bkTokens").checked);
     const data = JSON.stringify({app:"tankmix-pro", version:APP_VERSION, exported:new Date().toISOString(), settings:S.settings, mixes:S.mixes, library:S.library, fields:S.fields, log:S.log, current:S.mix, tempest:TM.TP.backup(withTok), wu:TM.WU.backup(withTok)}, null, 1);
-    const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([data],{type:"application/json"})); a.download = "tankmix-backup-"+localDate()+".json"; document.body.appendChild(a); a.click(); a.remove();
+    const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([data],{type:"application/json"})); a.download = "spraytrue-backup-"+localDate()+".json"; document.body.appendChild(a); a.click(); a.remove();
   };
   $("btnImport").onclick = ()=>$("importFile").click();
   $("importFile").onchange = e=>{ const f = e.target.files[0]; if(!f) return; const rd = new FileReader();
@@ -1865,7 +1867,7 @@ function bindSettings(){
       const nw = d.wu ? TM.WU.restore(d.wu) : 0;
       renderSaved(); renderLibrary(); renderProducts();
       const bits = []; if (nt) bits.push(nt+" Tempest account"+(nt===1?"":"s")); if (nw) bits.push(nw+" WU account"+(nw===1?"":"s"));
-      toast("Backup imported"+(bits.length?" · "+bits.join(" · ")+" added":"")); } catch(err){ toast("That file isn't a TankMix backup"); } };
+      toast("Backup imported"+(bits.length?" · "+bits.join(" · ")+" added":"")); } catch(err){ toast("That file isn't a SprayTrue backup"); } };
     rd.readAsText(f); e.target.value=""; };
 }
 
@@ -2215,7 +2217,7 @@ function bindSitePest(p){
 
 /* ---------- Print / share ---------- */
 function mixText(R){
-  const m = isMetric(), L = [];
+  const m = isMetric(), L = ["SprayTrue · v"+APP_VERSION];
   L.push((S.mix.name||"Tank mix")+" · "+new Date().toLocaleDateString());
   L.push(`Tank ${showVolGal(R.tank,m)} · ${showCarrier(R,S.mix,m)} · ${showArea(R.acres,S.mix,m)}`);
   L.push(`${showArea(R.acresPerTank,S.mix,m)} per tank · ${R.fullTanks} full tank(s)${R.partialGal>0?" + partial "+showVolGal(R.partialGal,m)+" ("+showArea(R.partialAcres,S.mix,m)+")":""} · total ${showVolGal(R.totalGal,m)}`);
@@ -2244,7 +2246,7 @@ function renderPrint(R){
     + (C.parts.length>1 ? `<tr class="ps-car"><td><b>Total carrier</b></td><td></td><td>${esc(showCarrier(R,S.mix,m))}</td><td><b>${cv(C.perFull)}</b></td><td>${R.partialGal>0?cv(C.perPartial):"—"}</td><td>${cv(C.total)}</td><td></td></tr>` : "");
   const cnotes = R.ok ? carrierNotes(R,m) : [];
   $("printSheet").innerHTML = `<h1>${esc(S.mix.name||"Tank mix")}</h1>
-    <div class="ps-meta">Printed ${new Date().toLocaleString()} · TankMix Pro v${APP_VERSION}</div>
+    <div class="ps-meta">Printed ${new Date().toLocaleString()} · SprayTrue v${APP_VERSION}</div>
     <table><tr><th>Tank</th><th>Carrier</th><th>Field</th><th>Area/tank</th><th>Full tanks</th><th>Partial tank</th><th>Total spray</th></tr>
     <tr><td>${showVolGal(R.tank,m)}</td><td>${showCarrier(R,S.mix,m)}</td><td>${showArea(R.acres,S.mix,m)}</td><td>${showArea(R.acresPerTank,S.mix,m)}</td><td>${R.fullTanks}</td><td>${R.partialGal>0?showVolGal(R.partialGal,m)+" ("+showArea(R.partialAcres,S.mix,m)+")":"none"}</td><td>${showVolGal(R.totalGal,m)}</td></tr></table>
     <table><tr><th>Product</th><th>Type</th><th>Rate</th><th>Per full tank</th><th>Partial tank</th><th>Job total</th><th>$/${m?"ha":"A"}</th></tr>${rows||"<tr><td colspan=7>No products</td></tr>"}${crow}</table>
@@ -2384,7 +2386,7 @@ function buildSheetPdf(root){
   };
   [...root.children].forEach(walk);
   if (stream.length) pages.push(stream);
-  if (!pages.length){ stream = []; textAt(PDF_M, PDF_H-PDF_M-14, 12, PV.title||"TankMix", true); pages.push(stream); }
+  if (!pages.length){ stream = []; textAt(PDF_M, PDF_H-PDF_M-14, 12, PV.title||"SprayTrue", true); pages.push(stream); }
 
   // Assemble PDF
   const enc = s => new TextEncoder().encode(s);
@@ -2426,7 +2428,7 @@ function sheetPdfBlob(root){
 TM.buildSheetPdf = buildSheetPdf;
 TM.sheetPdfBlob = sheetPdfBlob;
 
-const sheetFile = () => (PV.title||"tankmix").replace(/[^\w\- ]+/g,"").trim().replace(/\s+/g,"-").slice(0,60)+"-"+localDate()+".pdf";
+const sheetFile = () => "spraytrue-"+(PV.title||"mix").replace(/[^\w\- ]+/g,"").trim().replace(/\s+/g,"-").slice(0,60)+"-"+localDate()+".pdf";
 function pvPrint(){
   // must run synchronously inside the tap (no timers or awaits) so the browser still counts it as a user action
   let fired = false; const mark = () => { fired = true; };
@@ -2451,9 +2453,9 @@ async function pvShare(){
   try {
     if (navigator.share){
       const f = typeof File==="function" ? new File([blob], name, {type:"application/pdf"}) : null;
-      if (f && navigator.canShare && navigator.canShare({files:[f]})){ await navigator.share({files:[f], title:PV.title}); return; }
+      if (f && navigator.canShare && navigator.canShare({files:[f]})){ await navigator.share({files:[f], title:"SprayTrue · "+PV.title}); return; }
       // share text fallback, then offer download
-      try { await navigator.share({title:PV.title, text:PV.text}); } catch(e2){ if (e2 && e2.name==="AbortError") return; }
+      try { await navigator.share({title:"SprayTrue · "+PV.title, text:PV.text}); } catch(e2){ if (e2 && e2.name==="AbortError") return; }
       toast("Sharing a PDF file isn't supported here — downloading the PDF");
       pvDownload(); return;
     }
@@ -4210,7 +4212,7 @@ const SYNC = {
     return message||'Could not sign in. Local data is safe.';
   },
   redirect(){
-    if(!/^https?:$/.test(location.protocol))throw new Error('Open the hosted TankMix app to manage your account.');
+    if(!/^https?:$/.test(location.protocol))throw new Error('Open the hosted SprayTrue app to manage your account.');
     return encodeURIComponent(location.origin+location.pathname);
   },
   async signIn(email,password){
@@ -4230,7 +4232,7 @@ const SYNC = {
     if(Date.now()<this.emailWaitUntil)throw new Error('Wait at least 60 seconds between signup/recovery email requests.');
     await this.request('/auth/v1/recover?redirect_to='+this.redirect(),{method:'POST',body:JSON.stringify({email})});
     this.emailWaitUntil=Date.now()+60000;
-    this.setStatus('If this email has an account, a password recovery email is on its way. Open the newest link to set your password. Recovery needs the TankMix URL saved in Supabase URL Configuration (not localhost:3000). Wait at least 60 seconds before requesting another; the project email quota may require up to an hour.');
+    this.setStatus('If this email has an account, a password recovery email is on its way. Open the newest link to set your password. Recovery needs the SprayTrue URL saved in Supabase URL Configuration (not localhost:3000). Wait at least 60 seconds before requesting another; the project email quota may require up to an hour.');
   },
   clearPasswords(){['syncPassword','syncCurrentPassword','syncNewPassword','syncConfirmPassword'].forEach(id=>$(id).value='');},
   cancelPassword(){
@@ -4276,7 +4278,7 @@ const SYNC = {
     if (!user || !user.id) throw new Error('Could not verify signed-in user.');
     if (this.meta.owner && this.meta.owner!==user.id){
       // NEVER upload the previous account's local data to a different account.
-      if (!confirm('This device has data from another TankMix account. Archive it locally and switch accounts? The other account’s data will not be uploaded.')) throw new Error('Account switch canceled.');
+      if (!confirm('This device has data from another SprayTrue account. Archive it locally and switch accounts? The other account’s data will not be uploaded.')) throw new Error('Account switch canceled.');
       const archive={}; for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(syncEligible(k)) archive[k]=localStorage.getItem(k);}
       localStorage.setItem('tankmix.archive.'+this.meta.owner,JSON.stringify({data:archive,meta:this.meta}));
       Object.keys(archive).forEach(k=>localStorage.removeItem(k));
@@ -4411,7 +4413,7 @@ const SYNC = {
     const data=syncRead(SYNC_LOCAL.recovery,null);if(!data)return;
     const get=(k,d)=>{try{return JSON.parse(data['tm.'+k])||d;}catch(e){return d;}};
     const body={rawLocalStorage:data,app:'tankmix-pro',version:APP_VERSION,exported:new Date().toISOString(),settings:get('settings',{}),current:get('current',null),mixes:get('mixes',[]),library:get('library',[]),log:get('log',[]),fields:get('fields',[]),tempest:get('tempest',{}),wu:get('wu',{})};
-    const a=document.createElement('a');a.download='tankmix-pre-sync-recovery-'+localDate()+'.json';a.href=URL.createObjectURL(new Blob([JSON.stringify(body)],{type:'application/json'}));a.click();setTimeout(()=>URL.revokeObjectURL(a.href),30000);
+    const a=document.createElement('a');a.download='spraytrue-pre-sync-recovery-'+localDate()+'.json';a.href=URL.createObjectURL(new Blob([JSON.stringify(body)],{type:'application/json'}));a.click();setTimeout(()=>URL.revokeObjectURL(a.href),30000);
   },
   async init(){
     this.render();
@@ -4780,11 +4782,11 @@ function showLogRec(r){
 function printLog(recs){
   recs = recs || filteredLog();
   if (!recs.length) return toast("No records to print");
-  $("printSheet").innerHTML = `<h1>Pesticide application record${recs.length>1?"s":""}</h1><div class="ps-meta">Printed ${new Date().toLocaleString()} · TankMix Pro v${APP_VERSION} · ${recs.length} record${recs.length===1?"":"s"}</div>` +
+  $("printSheet").innerHTML = `<h1>Pesticide application record${recs.length>1?"s":""}</h1><div class="ps-meta">Printed ${new Date().toLocaleString()} · SprayTrue v${APP_VERSION} · ${recs.length} record${recs.length===1?"":"s"}</div>` +
     recs.map(r=>`<h3 style="margin:12pt 0 2pt">${esc(dtTxt(r.dt))} · ${esc([gfTxt(r), r.field].filter(Boolean).join(" › "))}</h3>`+recHtml(r, true).replace('class="kv"','')).join("") +
     `<p style="font-size:10pt;margin-top:12pt">Applicator signature: ______________________________ Date: ____________</p>`;
   const t = recs.length===1 ? "Spray record · "+(recs[0].field||dtTxt(recs[0].dt)) : "Spray records ("+recs.length+")";
-  openPrintView("log", t, recs.map(r=>recTxt(r)).join("\n\n"));
+  openPrintView("log", t, "SprayTrue · v"+APP_VERSION+"\n\n"+recs.map(r=>recTxt(r)).join("\n\n"));
 }
 function recTxt(r){ const w = r.wx||{}, L = r.loc, hasL = L && GEO.valid(L.lat, L.lon);
   return [dtTxt(r.dt)+" · "+(r.field||"")+(r.crop?" · "+r.crop:""), r.grower||r.farm ? [r.grower?"Grower: "+r.grower:"", r.farm?"Farm: "+r.farm:""].filter(Boolean).join(" · ") : "", hasL ? "Location: "+GEO.fmt(L.lat, L.lon)+" ("+GEO.dms(L.lat, L.lon)+") "+GEO.mapsUrl(L.lat, L.lon)+(L.boundary&&L.boundary.length>=3?" · boundary "+fmt(+L.bAcres||GEO.acres(L.boundary),1)+" ac":"") : "", (r.acres?r.acres+" ac · ":"")+(r.tanks?r.tanks+" tank loads":""), r.pests?"Pests: "+r.pests:"", "Mix: "+(r.mixName||"—")+(r.carrier?" ("+r.carrier+")":""), r.carrierAmt||"",
@@ -4804,7 +4806,7 @@ function logCsv(recs){
 TM.logCsv = () => logCsv(filteredLog());
 function exportCsv(){
   const L = filteredLog(); if (!L.length) return toast("No records to export");
-  const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob(["\ufeff"+logCsv(L)],{type:"text/csv"})); a.download = "spray-log-"+localDate()+".csv"; document.body.appendChild(a); a.click(); a.remove();
+  const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob(["\ufeff"+logCsv(L)],{type:"text/csv"})); a.download = "spraytrue-spray-log-"+localDate()+".csv"; document.body.appendChild(a); a.click(); a.remove();
 }
 
 /* ---------- init ---------- */
