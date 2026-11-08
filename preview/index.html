@@ -220,6 +220,15 @@ body.pv #printSheet{display:block;background:#fff;color:#000;padding:14px;max-wi
 .locbox .inrow input{flex:1 1 auto}
 .locbox .g2 .btn.sm{white-space:nowrap;font-size:14.5px;padding:0 8px}
 #accountCard [hidden]{display:none!important}
+#fieldStatus{position:sticky;top:var(--headerH,90px);z-index:19;background:var(--bg);max-width:780px;margin:0 auto;padding:6px 14px;font-size:12.5px;color:var(--muted);display:flex;gap:8px;justify-content:space-between;flex-wrap:wrap}
+#fieldStatus details{max-width:100%} #fieldStatus summary{cursor:pointer;font-weight:700;min-height:28px}
+#fieldStatus details[open]{flex-basis:100%} #fieldStatus.sync-warn{color:var(--warn)}
+body.pv #fieldStatus{display:none} @media print{#fieldStatus{display:none}}
+details.setup>summary,#productAdvanced>summary{font-weight:750;cursor:pointer;min-height:44px;line-height:44px}
+#loadingTank .loadamount{font-size:23px;font-weight:850;white-space:nowrap} #loadingTank .kvline{align-items:center}
+#loadingTank .loadselect{margin-bottom:8px} #loadingTank h2{margin-bottom:8px}
+.pill.unknown{background:var(--chip);color:var(--warn);border:1px solid var(--warn)}
+#v-mix.loading #tankStats{display:none}
 </style>
 <style>/* required styles */
 
@@ -891,9 +900,10 @@ svg.leaflet-image-layer.leaflet-interactive path {
     <h1 id="hdrName">New mix</h1>
     <div class="sub" id="hdrSub">Tank-mix calculator</div>
   </div>
-  <button id="btnSave" title="Save this mix">Save</button>
-  <button id="btnPrint" title="Print / share mix sheet">Print</button>
+  <button id="btnSave" title="Save this mix">Save mix</button>
+  <button id="btnPrint" title="Print / share mix sheet">Print mix</button>
 </header>
+<div id="fieldStatus" role="status" aria-live="polite"><span id="fieldSync">Saved on this phone</span><details><summary>Offline readiness</summary><div id="offlineReady" class="small">Mix calculations, saved products, logs and PDF creation work offline once installed. Preview is online-only. Label PDFs, new EPA searches, map imagery and fresh weather need a connection. Download needed labels to Files before heading out.</div></details></div>
 
 <main>
 <section class="view on" id="v-mix" role="tabpanel">
@@ -904,7 +914,8 @@ svg.leaflet-image-layer.leaflet-interactive path {
     </select>
     <p class="tiny muted" id="mixJobsHint" style="margin:8px 0 0">Saved mixes also stay under Settings › Saved.</p>
   </div>
-  <div class="card">
+  <div class="card" id="loadingTank" aria-live="polite"></div>
+  <details class="card setup" id="mixSetup" open><summary>Sprayer &amp; field setup</summary>
     <h2 style="justify-content:space-between">Sprayer &amp; field <button class="btn danger sm" id="btnClearMix" type="button" aria-label="Clear the form and start a new mix">✕ Clear</button></h2>
     <div class="grid">
       <div>
@@ -931,7 +942,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
       </div>
     </div>
     <div id="fertBox"></div>
-  </div>
+  </details>
 
   <div class="card" id="tankStats" aria-live="polite"></div>
 
@@ -942,7 +953,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
       <button class="btn" id="btnAddProd">＋ Add product</button>
       <button class="btn alt" id="quickAdd" aria-haspopup="dialog">⚡ Quick add…</button>
     </div>
-    <p class="tiny muted" style="margin:10px 0 0">Quick add lists My products (<span class="tag epa">EPA</span>, <span class="tag wsda">WSDA</span>, and <span class="tag cu">Custom</span>) and generic adjuvants. Use <b>Tools › Lookup</b> (or Add product above) to pull a product from EPA with its formulation prefilled. Always use the rate on the product label.</p>
+    <p class="tiny muted" style="margin:10px 0 0">Quick add lists My products (<span class="tag epa">EPA</span>, <span class="tag wsda">WSDA</span>, and <span class="tag cu">Custom</span>) and generic adjuvants. Use <b>Products</b> (or Add product above) to find EPA or WSDA products with their label details. Always use the rate on the product label.</p>
   </div>
 
   <div class="card" id="carrierCard" aria-live="polite"></div>
@@ -973,38 +984,30 @@ svg.leaflet-image-layer.leaflet-interactive path {
       <div id="jarOut"></div>
     </div>
   </div>
-  <div id="v-lookup" hidden>
-    <div class="card">
-      <h2>Product lookup</h2>
-      <form id="lkForm" class="grid" autocomplete="off">
-        <input id="lkQ" type="search" placeholder="Product, active ingredient, EPA or WA Reg. No." enterkeyhint="search">
-        <div class="grid g2">
-          <div><label class="f" for="lkCrop">Crop / site</label><select id="lkCrop"></select></div>
-          <div><label class="f" for="lkPest">Pest (optional)</label><input id="lkPest" type="search" placeholder="e.g. waterhemp" enterkeyhint="search"></div>
-        </div>
-        <input id="lkCropTxt" type="search" placeholder="Type an EPA site, e.g. Ornamental Turf" hidden>
-        <button class="btn block" type="submit">Search EPA</button>
-      </form>
-      <div id="lkSrc" class="tiny muted" style="margin-top:8px"></div>
-    </div>
-    <div id="lkOut"></div>
-  </div>
+  <div id="v-lookup" hidden><div class="card"><h2>Product search</h2><p>EPA and WSDA search, including crop/site and pest filters, now live together in Products.</p><button class="btn block" id="toolsProductSearch" data-go="productSearch">Search products ›</button></div></div>
 </section>
 
 <section class="view" id="v-products" role="tabpanel">
   <div id="prodLibPane">
     <div class="card">
       <h2>Add product</h2>
-      <p class="small muted" style="margin-top:0">Search EPA here to save products to My products without leaving this tab. For crop/site and pest filters, use <b>Tools › Lookup</b>.</p>
-      <form id="prodLkForm" class="grid" autocomplete="off">
-        <input id="prodLkQ" type="search" placeholder="Product, active ingredient, EPA or WA Reg. No." enterkeyhint="search">
-        <button class="btn block" type="submit">Search EPA</button>
+      <form id="lkForm" class="grid" autocomplete="off">
+        <input id="lkQ" type="search" placeholder="Product, active ingredient, EPA or WA Reg. No." enterkeyhint="search">
+        <details id="productAdvanced"><summary>Advanced filters: crop / site &amp; pests</summary><div class="grid g2">
+          <div><label class="f" for="lkCrop">Crop / site</label><select id="lkCrop"></select></div>
+          <div><label class="f" for="lkPest">Pest (optional)</label><input id="lkPest" type="search" placeholder="e.g. waterhemp" enterkeyhint="search"></div>
+        </div>
+        <input id="lkCropTxt" type="search" placeholder="Type an EPA site, e.g. Ornamental Turf" hidden>
+        <p class="tiny muted">These filters use EPA crop/site and pest lists; WSDA-only results are omitted while filtering. Confirm all uses on the label.</p></details>
+        <button class="btn block" type="submit">Search products</button>
       </form>
-      <div id="prodLkOut" style="margin-top:10px"></div>
+      <div id="lkSrc" class="tiny muted" style="margin-top:8px"></div>
+      <div id="wsdaFresh" class="tiny muted" role="status"></div>
+      <div id="lkOut" style="margin-top:10px"></div>
     </div>
     <div class="card">
       <h2 style="justify-content:space-between">My products <span class="tiny muted" id="libCount" style="font-weight:650"></span></h2>
-      <p class="small muted" style="margin-top:0">Products here show up in <b>Quick add</b> on the Mix tab. Save products above or from Lookup (EPA or WSDA), or add your own custom products. Tap a product to see its details.</p>
+      <p class="small muted" style="margin-top:0">Products here show up in <b>Quick add</b> on the Mix tab. Search EPA and WSDA above, or add your own custom products. Tap a product to see its details.</p>
       <input id="libQ" type="search" placeholder="Search My products" autocomplete="off" style="margin-bottom:8px">
       <div class="seg sm" id="libF" style="margin:0 0 8px;width:100%;display:flex">
         <button type="button" data-v="all" class="on" style="flex:1">All</button>
@@ -1044,7 +1047,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
     <div id="syncActions" hidden style="margin-top:10px">
       <div class="grid g2"><button class="btn" id="syncNow" type="button">Sync now</button><button class="btn alt" id="syncOut" type="button">Sign out</button></div>
       <button class="btn alt sm" id="syncChange" type="button" style="margin-top:10px">Change password</button>
-      <p class="tiny muted">Offline edits stay here and sync when you reconnect. Newest change wins per key. Signing out keeps local data on this device.</p>
+      <p class="tiny muted">Offline edits stay here and sync when you reconnect. Saved jobs, products, records and fields merge individually. Conflicting edits are kept as copies. Settings and weather choices use the newest change. Use v2.14 or newer on all devices for the new merge. Signing out keeps local data on this device.</p>
     </div>
     <form id="syncPasswordForm" class="grid" hidden style="margin-top:12px">
       <h3 id="syncPasswordTitle">Set a new password</h3>
@@ -1057,6 +1060,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
     </form>
     <p id="syncLast" class="tiny muted" style="margin:8px 0 0">Last synced: never</p>
     <p id="syncStatus" class="small" role="status" aria-live="polite"></p>
+    <button class="btn alt sm" id="syncLegacyRecovery" type="button" hidden>Download older-app recovery snapshots</button>
     <button class="btn alt sm" id="syncRecovery" type="button" hidden>Download pre-sync recovery backup</button>
   </div>
   <div class="card">
@@ -1141,7 +1145,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
    3. Storage (localStorage)
    4. UI: Mix, Order/Jar test, Lookup (EPA), Saved, Print
    ===================================================================== */
-const APP_VERSION = "2.13.0";
+const APP_VERSION = "2.14.0";
 const TM = window.TM = {};
 
 /* ---------- 1. Constants ---------- */
@@ -1343,7 +1347,7 @@ const uid = () => Math.random().toString(36).slice(2,10)+Date.now().toString(36)
 /* ---------- 3. Storage ---------- */
 const LS = {
   get(k, d){ try{ const v = localStorage.getItem("tm."+k); return v==null ? d : JSON.parse(v); }catch(e){ return d; } },
-  set(k, v){ try{ localStorage.setItem("tm."+k, JSON.stringify(v)); if (TM.syncChanged) TM.syncChanged("tm."+k); }catch(e){ toast("Storage full or blocked; data not saved"); } }
+  set(k, v){ try{ const raw=JSON.stringify(v); if(TM.beforeLocalWrite)TM.beforeLocalWrite("tm."+k,raw); localStorage.setItem("tm."+k, raw); if (TM.syncChanged) TM.syncChanged("tm."+k); return true; }catch(e){ toast("Storage full or blocked; data not saved. Export a backup."); return false; } }
 };
 const S = {
   settings: Object.assign({units:"us", theme:"light", jar:32, wxSrc:"openmeteo", wxLoc:null, mapLayer:"sat", lastFieldLoc:null}, LS.get("settings", {})),
@@ -1410,15 +1414,17 @@ function fillUnitSelects(){
   $("areaUnit").innerHTML = au.map(([v,l])=>`<option value="${v}"${v===S.mix.area.u?" selected":""}>${l}</option>`).join("");
 }
 function loadMixIntoForm(){
+  if(S.mix.id)RECORD_SYNC.noteEdit('mixes',S.mix.id,true);
   $("mixName").value = S.mix.name||"";
   $("tankSize").value = S.mix.tank.v; $("carrierRate").value = S.mix.carrier.v; $("area").value = S.mix.area.v;
   fillUnitSelects(); renderFertBox(); renderProducts(); renderAll();
+  if ($("mixSetup")) $("mixSetup").open = !S.mix.products.length || !TM.calc(S.mix).ok;
 }
 function renderHeader(){
   $("hdrName").textContent = S.mix.name || "Untitled mix";
   const saved = S.mix.id && S.mixes.find(x=>x.id===S.mix.id);
   const n = S.mix.products.length;
-  $("hdrSub").textContent = (saved ? "Saved mix" : "Not saved")+" · "+n+" product"+(n===1?"":"s");
+  $("hdrSub").textContent = (saved ? (mixDraftDirty() ? "Unsaved changes" : "Saved mix") : "Not saved")+" · "+n+" product"+(n===1?"":"s");
 }
 function renderStats(R){
   const m = isMetric(), el = $("tankStats");
@@ -1577,7 +1583,7 @@ function renderJar(R){
 }
 function renderAll(){
   const R = TM.calc(S.mix);
-  renderHeader(); renderStats(R); renderFertOut(R); renderOutputs(R); renderCarrier(R); renderCost(R); renderOrder(R); renderJar(R);
+  renderHeader(); renderLoadingTank(R); renderStats(R); renderFertOut(R); renderOutputs(R); renderCarrier(R); renderCost(R); renderOrder(R); renderJar(R);
   return R;
 }
 
@@ -1693,10 +1699,11 @@ TM.saveToLibrary = saveToLibrary;
 function openDlg(title, html){ if (TM.dlgCleanup){ try { TM.dlgCleanup(); } catch(e){} TM.dlgCleanup = null; } $("dlgT").textContent = title; $("dlgB").innerHTML = html; const d=$("dlg"); if (d.showModal) d.showModal(); else d.setAttribute("open",""); }
 function closeDlg(){ if (TM.dlgCleanup){ try { TM.dlgCleanup(); } catch(e){} TM.dlgCleanup = null; } const d=$("dlg"); if (d.close) d.close(); else d.removeAttribute("open"); }
 // Saved is a Settings sub-page; Sprayer / Order / Lookup live under Tools; Logs is its own tab
-const TAB_OF = { saved:"set", order:"tools", cal:"tools", lookup:"tools" };
+const TAB_OF = { saved:"set", order:"tools", cal:"tools", lookup:"products" };
 let toolsSub = "cal";
 function showTab(v){
   if (document.body.classList.contains("pv")) closePrintView(true);
+  if (v==="productSearch" || v==="lookup"){ v="products"; closeProductDetail(); $("productAdvanced").open=true; }
   if (v==="tools") v = toolsSub || "cal";
   if (v==="order" || v==="cal" || v==="lookup"){
     toolsSub = v;
@@ -1726,7 +1733,7 @@ function saveMix(asCopy){
   } else {
     const r = S.mixes.find(x=>x.id===S.mix.id); r.name = S.mix.name; r.updated = now; r.mix = clone(S.mix);
   }
-  persist("mixes"); saveCurrent(); $("mixName").value = S.mix.name; renderSaved(); renderAll(); toast("Saved “"+S.mix.name+"”");
+  if(persist("mixes")===false)return; saveCurrent(); $("mixName").value = S.mix.name; renderSaved(); renderAll(); toast("Saved “"+S.mix.name+"”");
 }
 TM.saveMix = saveMix;
 /* True when the Mix draft would be lost if replaced (unsaved edits vs saved copy, or a non-empty untitled draft). */
@@ -1734,7 +1741,7 @@ function mixDraftDirty(){
   const m = S.mix; if (!m) return false;
   if (m.id){
     const r = S.mixes.find(x=>x.id===m.id);
-    if (r) try { return JSON.stringify(m) !== JSON.stringify(r.mix); } catch(e){ return true; }
+    if (r) try { return syncStable({...m,fert:Object.assign(blankFert(),m.fert||{})}) !== syncStable({...r.mix,fert:Object.assign(blankFert(),r.mix.fert||{})}); } catch(e){ return true; }
   }
   if ((m.products||[]).length) return true;
   if ((m.name||"").trim()) return true;
@@ -1746,7 +1753,7 @@ TM.mixDraftDirty = mixDraftDirty;
 function openMix(r){
   if (!r || !r.mix) return;
   if (mixDraftDirty() && !confirm("Replace the current mix with “"+r.name+"”? Unsaved changes will be lost.")) return;
-  S.mix = clone(r.mix); saveCurrent(); loadMixIntoForm(); renderSaved(); showTab("mix"); toast("Opened “"+r.name+"”");
+  RECORD_SYNC.noteEdit('mixes',r.id); S.mix = clone(r.mix); saveCurrent(); loadMixIntoForm(); renderSaved(); showTab("mix"); toast("Opened “"+r.name+"”");
 }
 TM.openMix = openMix;
 
@@ -2000,9 +2007,9 @@ async function doLookup(q, more){
     try { await wsdaLoad(); } catch(e){}
     const key = q.toUpperCase().replace(/\s+/g,"");
     const waOnly = WSDA.ready() && WSDA.byWa && WSDA.byWa.get(key);
-    if (waOnly) return showWsdaDetail(waOnly);
-    await showDetail(key);
-    const wa = wsdaForEpa(key); if (wa) attachWaBlock(wa);
+    if (waOnly) return openProductSearchResult({wsdaOnly:true,wsda:waOnly});
+    const wa = wsdaForEpa(key);
+    await openProductSearchResult({eparegno:key,wsda:wa});
     return;
   }
   if (!more){ Object.assign(LK, {q, crop, pest, list:[], offset:0, hasMore:false, wsda:[], unified:[]}); renderResults.limit = 40; }
@@ -2075,7 +2082,7 @@ function renderResults(){
       <div class="tiny muted">${sub}</div>
       ${r._sites&&r._sites.length?`<div class="tiny" style="margin-top:2px">🌱 ${esc(r._sites.slice(0,3).join(" · "))}${r._sites.length>3?" +"+(r._sites.length-3)+" more":""}</div>`:""}
       ${r._pests&&r._pests.length?`<div class="tiny" style="margin-top:2px">🐛 ${esc(r._pests.slice(0,3).join(" · "))}${r._pests.length>3?" +"+(r._pests.length-3)+" more":""}</div>`:""}</button>
-      <span>${sourceBadges(r)}</span>
+      <span>${sourceBadges(r)}${findLibraryDup({epa:r.eparegno,waReg:r.wsda&&r.wsda.reg,name:title(r)})?` <span class="badge ok">In My products</span>`:""}</span>
       ${r.wsdaOnly?"":`<span class="badge ${r.product_status==="Active"?"ok":"off"}">${esc(r.product_status||"")}</span>`}</div>`;
     }).join("")}
     ${shown.length>lim?`<button class="btn alt block" id="lkMore">Show more (${shown.length-lim})</button>`:""}
@@ -2086,7 +2093,7 @@ function renderResults(){
   if ($("lkMore")) $("lkMore").onclick = ()=>{ renderResults.limit = lim+40; renderResults(); };
   if ($("lkMoreEpa")) $("lkMoreEpa").onclick = e=>{ e.target.disabled = true; e.target.innerHTML = '<span class="spinner"></span> Loading…'; renderResults.limit = lim+100; doLookup(LK.q, true); };
   const shownRef = shown;
-  $("lkOut").querySelectorAll("[data-ui]").forEach(b=>b.onclick=()=>openUnifiedResult(shownRef[+b.dataset.ui]));
+  $("lkOut").querySelectorAll("[data-ui]").forEach(b=>b.onclick=()=>openProductSearchResult(shownRef[+b.dataset.ui]));
 }
 // EPA's formulation field is a broad category (it lists many SL and SC products as "Emulsifiable Concentrate"),
 // so an explicit code in the product/brand name wins; EPA's category is the fallback. The user confirms either way.
@@ -2723,12 +2730,12 @@ function renderWx(){
     // Personal station: use model's own 80 m − 2 m difference (don't mix station 2 m with model 80 m)
     if (T && H[0] && H[0].t80F!=null && H[0].tempF!=null) cur.t80F = n.tempF + (H[0].t80F - H[0].tempF);
     const ev = sprayFlags(cur, {nearDusk: nearDusk(n.at, d.sun)}), rs0 = rainSoon(H), rs = rs0 && !(rs0===H[0] && num(cur.pop)>=30) ? rs0 : null;
-    const age = (Date.now() - Date.parse(d.fetched))/60000, stale = T && TP.ageMin(T.ts) > (d.wu ? WU.STALE_MIN : TP.STALE_MIN);
+    const age = (Date.now() - Date.parse(d.fetched))/60000, stale = weatherUnknown(d);
     const tile = (k, v, sub) => `<div><div class="k">${k}</div><div class="v">${v}</div>${sub?`<div class="tiny muted">${sub}</div>`:""}</div>`;
     if (d.fallback) h += `<div class="flag caution">${esc(srcKind || (wantWu?"WU":wantTp?"Tempest":"Station"))} unavailable: ${esc(d.fallback)}. Showing Open-Meteo model data for the station's location instead.</div>`;
     if (T) h += `<div class="small" style="margin-top:10px">📡 <b>${esc(T.label)}</b> <span class="badge">${esc(srcKind)}</span> <span class="muted">· ${esc(T.acct||"")}</span></div>`;
-    h += `<div class="row" style="justify-content:space-between;margin:${T?"4px":"10px"} 0 6px"><b>Now · ${esc(hhmm(n.at))} ${esc(d.tz||"")}${T?` <span class="tiny ${stale?"warn":"muted"}" id="wxAge">· ${esc(TP.ago(T.ts))}</span>`:""}</b><span class="pill ${ev.level}">${{good:"Good",caution:"Caution",poor:"Poor"}[ev.level]}</span></div>
-    ${stale?`<div class="flag caution">Stale reading: ${esc(T.label)} last reported ${esc(TP.ago(T.ts))}. The station may be offline. Check conditions at the field before you spray.</div>`:""}
+    h += `<div class="row" style="justify-content:space-between;margin:${T?"4px":"10px"} 0 6px"><b>Now · ${esc(hhmm(n.at))} ${esc(d.tz||"")}${T?` <span class="tiny ${stale?"warn":"muted"}" id="wxAge">· ${esc(TP.ago(T.ts))}</span>`:""}</b><span class="pill ${stale?"unknown":ev.level}">${stale?"Conditions unknown":{good:"Good",caution:"Caution",poor:"Poor"}[ev.level]}</span></div>
+    ${stale?`<div class="flag caution">${T?`Stale reading: ${esc(T.label)} last reported ${esc(TP.ago(T.ts))}. The station may be offline.`:"Weather is stale or incomplete. Refresh the forecast."} Check conditions at the field before you spray.</div>`:""}
     <div class="wxnow">
       ${tile("Wind", fmt(n.windMph,0)+" mph", `from ${compass(n.windDir)} (${fmt(n.windDir,0)}°)`)}
       ${tile("Gusts", fmt(n.gustMph,0)+" mph")}
@@ -2741,10 +2748,10 @@ function renderWx(){
     </div>
     ${ev.flags.map(f=>`<div class="flag ${f.lvl}">${esc(f.msg)}</div>`).join("")}
     ${rs?`<div class="flag caution">Rain chance ${fmt(rs.pop,0)}% by ${esc(hhmm(rs.t))}. Check each product's rainfast interval on the label.</div>`:""}
-    ${!ev.flags.length&&!rs&&H.length?`<div class="flag good">Within the general guidelines right now (3–10 mph wind, under 85°F, no rain soon).</div>`:""}
+    ${!stale&&!ev.flags.length&&!rs&&H.length?`<div class="flag good">Within the general guidelines right now (3–10 mph wind, under 85°F, no rain soon).</div>`:""}
     <h3>Next 12 hours${T?` <span class="tiny muted" style="font-weight:600">· Open-Meteo forecast</span>`:""}</h3>
     ${H.length?`<div class="hrs"><table><tr><th>Time</th><th>Wind</th><th>Gust</th><th>Dir</th><th>Temp</th><th>RH</th><th>Rain</th><th></th></tr>
-    ${H.slice(0,13).map(x=>{ const e = sprayFlags(x, {nearDusk: nearDusk(x.t, d.sun)}); return `<tr><td>${esc(hhmm(x.t))}</td><td><b>${fmt(x.windMph,0)}</b></td><td>${fmt(x.gustMph,0)}</td><td>${compass(x.windDir)}</td><td>${fmt(x.tempF,0)}°</td><td>${fmt(x.rh,0)}%</td><td>${fmt(x.pop,0)}%</td><td><span class="pill ${e.level}" title="${esc(e.flags.map(f=>f.msg).join(" "))}">${{good:"OK",caution:"!",poor:"✗"}[e.level]}</span></td></tr>`; }).join("")}
+    ${H.slice(0,13).map(x=>{ const e = sprayFlags(x, {nearDusk: nearDusk(x.t, d.sun)}); return `<tr><td>${esc(hhmm(x.t))}</td><td><b>${fmt(x.windMph,0)}</b></td><td>${fmt(x.gustMph,0)}</td><td>${compass(x.windDir)}</td><td>${fmt(x.tempF,0)}°</td><td>${fmt(x.rh,0)}%</td><td>${fmt(x.pop,0)}%</td><td><span class="pill ${stale?"unknown":e.level}" title="${esc(e.flags.map(f=>f.msg).join(" "))}">${stale?"?":{good:"OK",caution:"!",poor:"✗"}[e.level]}</span></td></tr>`; }).join("")}
     </table></div>`:`<p class="small muted">${esc(d.hoursErr||"No hourly outlook")}. Tap the button again to retry.</p>`}
     <p class="tiny muted" style="margin:8px 0 0">${T
       ? `Now: live reading from ${esc(srcKind)} station ${esc(T.label)} (${fmt(d.lat,3)}, ${fmt(d.lon,3)}), reported ${esc(TP.ago(T.ts))}, fetched ${age<1?"just now":fmt(age,0)+" min ago"}. Hourly outlook and inversion hint: Open-Meteo model forecast for the station's location. Times are local to the station (${esc(d.tz||"")}).`
@@ -2921,7 +2928,7 @@ function fieldDlg(f){
     <div class="grid g2" style="margin-top:12px"><button class="btn" id="fdLog">📝 Log a spray here</button><button class="btn alt" id="fdRen">Rename</button><button class="btn alt" id="fdGF" style="grid-column:1/-1">Grower / farm…</button><button class="btn danger" id="fdDel" style="grid-column:1/-1">Delete saved field</button></div>
     <p class="tiny muted" style="margin:8px 0 0">Deleting a saved field doesn't change spray records that used it.</p>`);
   miniMap("fdMap", {lat:f.lat, lon:f.lon, boundary:f.boundary});
-  $("fdLog").onclick = ()=>{ closeDlg(); const r = blankLog(); r.field = f.name; if (f.grower || f.farm){ r.grower = f.grower||""; r.farm = f.farm||""; } r.loc = {lat:f.lat, lon:f.lon, boundary:clone(f.boundary||[]), bAcres:f.acres||"", fieldId:f.id}; if (!r.acres && f.acres) r.acres = +(+f.acres).toFixed(2); LOGF.editing = r; renderLogForm(); $("logFormCard").scrollIntoView({behavior:"smooth"}); };
+  $("fdLog").onclick = ()=>{ closeDlg(); const r = blankLog(); r.field = f.name; if (f.grower || f.farm){ r.grower = f.grower||""; r.farm = f.farm||""; } r.loc = {lat:f.lat, lon:f.lon, boundary:clone(f.boundary||[]), bAcres:f.acres||"", fieldId:f.id}; if (!r.acres && f.acres) r.acres = +(+f.acres).toFixed(2); if(!beginLog(r))return; $("logFormCard").scrollIntoView({behavior:"smooth"}); };
   $("fdGF").onclick = ()=>{ const g = prompt("Grower for “"+f.name+"”:", f.grower||""); if (g==null) return; const fa = prompt("Farm for “"+f.name+"”:", f.farm||""); if (fa==null) return;
     f.grower = g.trim(); f.farm = fa.trim(); f.updated = Date.now(); persist("fields"); renderFields(); closeDlg(); fieldDlg(f); };
   $("fdRen").onclick = ()=>{ const n = prompt("Rename field:", f.name); if (n && n.trim()){ f.name = n.trim(); f.updated = Date.now(); persist("fields"); renderFields(); } closeDlg(); };
@@ -3073,6 +3080,7 @@ TM.inLibrary = inLibrary;
 
 /* ---- Add / edit custom product form ---- */
 function openCustomForm(init, cfg){
+  if(init&&init.id)RECORD_SYNC.noteEdit("library",init.id);
   cfg = cfg || {}; init = init || {};
   const ed = init.id && S.library.find(x=>x.id===init.id);
   const p = Object.assign({ name:"", mfr:"", cat:"", phys:"", form:"", rate:"", unit:"", basis:"/A", density:"", price:"", priceUnit:"", ai:"", notes:"" }, clone(init));
@@ -3257,84 +3265,11 @@ function bindLibrary(){
   if ($("prodLkForm")) $("prodLkForm").onsubmit = e=>{ e.preventDefault(); $("prodLkQ").blur(); doProdLookup($("prodLkQ").value); };
 }
 
-/* ---- EPA lookup inside Products tab (save to My products without leaving) ---- */
-const PLK = { q:"", list:[], snap:false }; TM.PLK = PLK;
-async function doProdLookup(q){
-  q = (q||"").trim(); if (!q){ toast("Enter a product name or EPA / WA Reg. No."); return; }
-  const out = $("prodLkOut"); if (!out) return;
-  if (REG_RE.test(q)){
-    closeProductDetail();
-    const list = $("prodLibPane"), det = $("prodDetailPane");
-    list.hidden = true; det.hidden = false;
-    det.innerHTML = `<button class="backbar" type="button" id="prodBack">‹ My products</button><div id="prodEpaHost"></div>`;
-    $("prodBack").onclick = ()=>{ closeProductDetail(); if (typeof renderProdLk==="function") renderProdLk(); };
-    try { await wsdaLoad(); } catch(e){}
-    const key = q.toUpperCase().replace(/\s+/g,"");
-    const waOnly = WSDA.ready() && WSDA.byWa && WSDA.byWa.get(key);
-    if (waOnly){ showWsdaDetail(waOnly, $("prodEpaHost")); return; }
-    await showDetail(key, $("prodEpaHost"));
-    const wa = wsdaForEpa(key); if (wa) attachWaBlock(wa, $("prodEpaHost"));
-    return;
-  }
-  out.innerHTML = `<div class="small muted"><span class="spinner"></span> Searching EPA + WSDA…</div>`;
-  const wsdaP = wsdaLoad().then(()=>wsdaSearch(q, 60)).catch(()=>[]);
-  let items = null;
-  if (liveState!=="file"){
-    try {
-      const url = APPRIL+"?q="+encodeURIComponent(JSON.stringify(aprilQuery(q, null, "", false)))+"&limit=100&offset=0";
-      const d = await getJSON(url, 45000); liveState = "live";
-      items = (d.items||[]).map(fromApril);
-    } catch(e){
-      try { items = ((await getJSON(EPA+"/ProductSearch/partialprodsearch/v2/riname/"+encodeURIComponent(q))).items||[]).map(x=>({eparegno:x.eparegno, productname:x.productname, product_status:x.product_status, alt:(x.altrntbrndnames||"").replace(/"/g,"")})); liveState="live"; }
-      catch(e2){ items = null; }
-    }
-  }
-  if (items===null){
-    const r = snapSearch(q, null, "");
-    PLK.snap = true;
-    items = r.map(p=>({eparegno:p.eparegno, productname:p.productname, product_status:p.product_status, alt:(p.altbrandnames||[]).map(a=>a.altbrandname).join("; ")}));
-  } else { PLK.snap = false; }
-  const wsHits = await wsdaP;
-  PLK.list = mergeSearchResults(items||[], wsHits, q);
-  PLK.q = q;
-  renderProdLk();
-}
-TM.doProdLookup = doProdLookup;
-function renderProdLk(){
-  const out = $("prodLkOut"); if (!out) return;
-  if (!PLK.q && !PLK.list.length){ out.innerHTML = ""; return; }
-  const ql = PLK.q.toLowerCase().trim();
-  const title = r => codeLike(r.productname) && r.alt ? r.alt.split(";")[0].trim() : r.productname;
-  const seen = new Set();
-  let list = PLK.list.filter(r=>{
-    const k = r.wsdaOnly ? ("wa:"+(r.wsda&&r.wsda.id)) : ("epa:"+r.eparegno);
-    if (seen.has(k)) return false; seen.add(k); return true;
-  });
-  const act = list.filter(r=>r.product_status==="Active" || r.wsdaOnly), shown = act.length ? act : list;
-  const lim = 40;
-  out.innerHTML = `<div class="row" style="justify-content:space-between;margin-bottom:6px"><b class="small">${list.length} result${list.length===1?"":"s"} “${esc(PLK.q)}”${PLK.snap?" (snapshot)":""}</b></div>
-    ${shown.length?"":`<div class="empty small">No matches.</div>`}
-    ${shown.slice(0,lim).map((r,i)=>{
-      const inLib = !!findLibraryDup({epa:r.eparegno, waReg:r.wsda&&r.wsda.reg, name:title(r)});
-      const sub = r.wsdaOnly
-        ? `WA ${esc((r.wsda&&r.wsda.reg)||"—")}${r.wsda&&r.wsda.type?" · "+esc(r.wsda.type):""}`
-        : `EPA ${esc(r.eparegno)}${r.wsda?" · also WSDA":""}${title(r)!==r.productname?" · EPA name "+esc(r.productname):r.alt?" · aka "+esc(r.alt.slice(0,80)):""}`;
-      return `<div class="res"><button class="link" type="button" data-ui="${i}"><div class="nm">${esc(title(r))}</div>
-        <div class="tiny muted">${sub}</div></button>
-        ${sourceBadges(r)}
-        ${inLib?`<span class="badge ok" title="Already saved">In My products</span>`:r.wsdaOnly?"":`<span class="badge ${r.product_status==="Active"?"ok":"off"}">${esc(r.product_status||"")}</span>`}</div>`;
-    }).join("")}
-    ${shown.length>lim?`<p class="tiny muted" style="margin:6px 0 0">Showing first ${lim}. Refine the search to narrow results.</p>`:""}`;
-  const shownRef = shown;
-  out.querySelectorAll("[data-ui]").forEach(b=>b.onclick=async ()=>{
-    const list = $("prodLibPane"), det = $("prodDetailPane");
-    list.hidden = true; det.hidden = false;
-    det.innerHTML = `<button class="backbar" type="button" id="prodBack">‹ My products</button><div id="prodEpaHost"></div>`;
-    $("prodBack").onclick = ()=>{ closeProductDetail(); renderProdLk(); };
-    await openUnifiedResult(shownRef[+b.dataset.ui], $("prodEpaHost"));
-  });
-}
-TM.renderProdLk = renderProdLk;
+/* v2.14: a single canonical EPA + WSDA search in Products. Legacy entry points remain aliases. */
+const PLK = LK; TM.PLK = PLK;
+async function doProdLookup(q){ return doLookup(q); }
+function renderProdLk(){ return renderResults(); }
+TM.doProdLookup=doProdLookup; TM.renderProdLk=renderProdLk;
 
 /* ---- Quick add picker (Mix tab) ---- */
 const QA = { q:"", f:"all" };
@@ -3342,7 +3277,7 @@ function openQuickAdd(){
   openDlg("Quick add", `<input id="qaQ" type="search" placeholder="Search My products & adjuvants" value="${esc(QA.q)}" autocomplete="off">
     <div class="seg sm" id="qaF" style="margin:8px 0 4px"><button type="button" data-v="all">All</button><button type="button" data-v="epa">EPA</button><button type="button" data-v="wsda">WSDA</button><button type="button" data-v="custom">Custom</button></div>
     <div id="qaList"></div>
-    <div class="grid g2" style="margin-top:10px"><button class="btn alt sm" id="qaNew">＋ New custom product</button><button class="btn alt sm" id="qaEpa">🔎 Find EPA product</button></div>`);
+    <div class="grid g2" style="margin-top:10px"><button class="btn alt sm" id="qaNew">＋ New custom product</button><button class="btn alt sm" id="qaEpa">🔎 Search products</button></div>`);
   const draw = () => {
     const q = QA.q.toLowerCase().trim(), hit = s => !q || s.toLowerCase().includes(q);
     document.querySelectorAll("#qaF button").forEach(b=>b.classList.toggle("on", b.dataset.v===QA.f));
@@ -3806,13 +3741,13 @@ async function wsdaLoad(){
       if (!r.ok) throw new Error("HTTP "+r.status);
       const d = await r.json();
       if (!d || !Array.isArray(d.products)) throw new Error("Bad WSDA dataset");
-      wsdaIndex(d); WSDA.err = "";
+      wsdaIndex(d); WSDA.err = ""; renderWsdaFresh();
       return d;
     } catch(e){
       WSDA.err = location.protocol==="file:"
         ? "WSDA data isn't available from a file:// page. Open the hosted app (or put wsda-products.json next to index.html on a web server)."
         : "Couldn't load the WSDA product index ("+(e.message||"error")+").";
-      throw e;
+      renderWsdaFresh(); throw e;
     } finally { WSDA.loading = null; }
   })();
   return WSDA.loading;
@@ -4075,7 +4010,7 @@ function attachWaBlock(p, host){
 TM.attachWaBlock = attachWaBlock;
 /* v2.12 Account / Sync. Local data remains tm.*; session/metadata stay DEVICE ONLY.
    No service-role key or database password. All remote requests use auth.uid() RLS.
-   Whole-key LWW after first merge; deletions are explicit tombstones, never absence. */
+   Settings/weather use key-level LWW; v2.14 collections use separate versioned per-record sync. */
 const SYNC_CONFIG = Object.freeze({
   url: 'https://qcwneqqfiyuouokklnpg.supabase.co',
   key: 'sb_publishable_PkfyLYIV_ZlA408XlTBnoQ_rV8e_olB'
@@ -4148,30 +4083,31 @@ const SYNC = {
   scan(){
     const present=new Set(); let changed=false;
     for (let i=0;i<localStorage.length;i++){
-      const key=localStorage.key(i); if (!syncEligible(key)) continue;
+      const key=localStorage.key(i); if (!syncKeyTransport(key)) continue;
       const raw=localStorage.getItem(key); try { JSON.parse(raw); } catch(e){ continue; }
       present.add(key); const digest=syncDigest(raw), old=this.meta.rows[key];
       if (!old || old.digest!==digest || old.deleted){
         this.meta.rows[key]={digest,deleted:false,dirty:true,updated_at:new Date(Math.max(Date.now(),syncTime(old)+1)).toISOString()}; changed=true;
       }
     }
-    for (const [key,old] of Object.entries(this.meta.rows)) if (syncEligible(key) && !present.has(key) && !old.deleted){
+    for (const [key,old] of Object.entries(this.meta.rows)) if (syncKeyTransport(key) && !present.has(key) && !old.deleted){
       this.meta.rows[key]={deleted:true,digest:null,dirty:true,updated_at:new Date(Math.max(Date.now(),syncTime(old)+1)).toISOString()}; changed=true;
     }
     if (changed) this.storeMeta(); return changed;
   },
   rows(){
-    return Object.entries(this.meta.rows).filter(([k])=>syncEligible(k)).map(([key,m])=>{
+    return Object.entries(this.meta.rows).filter(([k])=>syncKeyTransport(k)).map(([key,m])=>{
       let value=null; if (!m.deleted) try { value=JSON.parse(localStorage.getItem(key)); } catch(e){}
       return {key,value,updated_at:m.updated_at,deleted:!!m.deleted};
     });
   },
-  changed(){ if (this.restoring || !this.meta.owner) return; try { this.scan(); this.schedule(); } catch(e){ this.setStatus('Storage full: sync paused; export a backup.'); } },
+  changed(){ if (this.restoring || !this.meta.owner){renderFieldStatus();return;} try { this.scan(); renderFieldStatus(); this.schedule(); } catch(e){ this.setStatus('Storage full: sync paused; export a backup.'); } },
   schedule(ms=1500){
     if (!this.session) return;
     clearTimeout(this.timer); this.timer=setTimeout(()=>this.run(),ms);
   },
   render(){
+    renderFieldStatus();
     if (!$('syncIdentity')) return;
     const signed=!!this.session, recovering=this.passwordMode==='recovery';
     $('syncIdentity').textContent=recovering?'Set a password for '+(this.passwordSession?.user.email||'your account'):signed?'Signed in as '+(this.session.user.email||'your account'):'Not signed in — data stays on this device.';
@@ -4188,6 +4124,7 @@ const SYNC = {
     $('syncLast').textContent='Last synced: '+(this.meta.last?new Date(this.meta.last).toLocaleString():'never');
     $('syncStatus').textContent=this.status;
     $('syncRecovery').hidden=!localStorage.getItem(SYNC_LOCAL.recovery);
+    $('syncLegacyRecovery').hidden=!localStorage.getItem('tankmix.legacyRecovery.v2.'+(this.meta.owner||'device'));
   },
   async request(path,options={},token){
     const controller=new AbortController(), timeout=setTimeout(()=>controller.abort(),20000);
@@ -4279,6 +4216,8 @@ const SYNC = {
     if (this.meta.owner && this.meta.owner!==user.id){
       // NEVER upload the previous account's local data to a different account.
       if (!confirm('This device has data from another SprayTrue account. Archive it locally and switch accounts? The other account’s data will not be uploaded.')) throw new Error('Account switch canceled.');
+      localStorage.setItem('tankmix.accountSwitch.v2',JSON.stringify({owner:user.id,at:Date.now()}));
+      try {
       const archive={}; for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(syncEligible(k)) archive[k]=localStorage.getItem(k);}
       localStorage.setItem('tankmix.archive.'+this.meta.owner,JSON.stringify({data:archive,meta:this.meta}));
       Object.keys(archive).forEach(k=>localStorage.removeItem(k));
@@ -4287,6 +4226,8 @@ const SYNC = {
       else this.meta={owner:user.id,rows:{},first:false,last:null};
       localStorage.removeItem(SYNC_LOCAL.recovery);
       LOGF.editing=null; closeDlg(); if (PV.open) closePrintView(true);
+      this.storeMeta();
+      } finally {localStorage.removeItem('tankmix.accountSwitch.v2');}
       this.hydrate();
     }
     if (!this.meta.owner){
@@ -4318,8 +4259,12 @@ const SYNC = {
     this.setStatus('Signed out. Local data is kept on this device; automatic sync is off.');
   },
   hydrate(){
+    if(accountSwitching())return;
+    const shared=syncRead(SYNC_LOCAL.meta,this.meta);
+    if(shared.owner!==this.meta.owner){this.meta=shared;this.session=null;}
     this.restoring=true;
     try {
+      recordGuardLocal();
       S.settings=Object.assign({units:'us',theme:'light',jar:32,wxSrc:'openmeteo',wxLoc:null,mapLayer:'sat',lastFieldLoc:null},LS.get('settings',{}));
       S.mix=LS.get('current',null)||blankMix();
       ['mixes','library','log','fields'].forEach(k=>{S[k]=LS.get(k,[]);});
@@ -4334,7 +4279,7 @@ const SYNC = {
     } finally {this.restoring=false;}
   },
   async run(manual=false){
-    if (!this.session || this.passwordMode==='recovery') return;
+    if (!this.session || this.passwordMode==='recovery' || accountSwitching()) return;
     if (this.busy){this.again=true;return;}
     if (!navigator.onLine){this.setStatus('Offline — changes saved here; sync will retry when online.');return;}
     const active=document.activeElement;
@@ -4345,21 +4290,23 @@ const SYNC = {
         // Refresh metadata in case another tab completed a sync while we awaited the lock.
         const shared=syncRead(SYNC_LOCAL.meta,this.meta);
         if (shared.owner!==this.session.user.id) throw new Error('Account changed in another tab. Reload before syncing.');
-        this.meta=shared;this.scan();
+        this.meta=shared;
+        Object.keys(this.meta.rows).filter(syncCollection).forEach(k=>delete this.meta.rows[k]);
+        this.scan();
         const token=await this.token(), owner=this.session.user.id;
         const base='/rest/v1/user_data?user_id=eq.'+encodeURIComponent(owner);
         // Heartbeats fetch only timestamps. Large weather/EPA snapshots transfer only when changed.
         let cloud=await this.request(base+'&select=key,updated_at,deleted',{},token);
         if (!Array.isArray(cloud)) throw new Error('Invalid sync response.');
         this.scan();
-        const needed=cloud.filter(r=>syncEligible(r.key) && (!this.meta.first || !this.meta.rows[r.key] || syncTime(r)>syncTime(this.meta.rows[r.key]) || (syncTime(r)===syncTime(this.meta.rows[r.key]) && this.meta.rows[r.key].dirty))).map(r=>r.key);
+        const needed=cloud.filter(r=>syncKeyTransport(r.key) && (!this.meta.first || !this.meta.rows[r.key] || syncTime(r)>syncTime(this.meta.rows[r.key]) || (syncTime(r)===syncTime(this.meta.rows[r.key]) && this.meta.rows[r.key].dirty))).map(r=>r.key);
         let pulled=[];
         if(needed.length){
           const filter='('+needed.map(k=>'"'+k.replace(/\\/g,'\\\\').replace(/"/g,'\\"')+'"').join(',')+')';
           pulled=await this.request(base+'&select=key,value,updated_at,deleted&key=in.'+encodeURIComponent(filter),{},token);
           if(!Array.isArray(pulled))throw new Error('Invalid sync response.');
         }
-        const cloudMap=new Map(cloud.filter(r=>syncEligible(r.key)).map(r=>[r.key,r]));
+        const cloudMap=new Map(cloud.filter(r=>syncKeyTransport(r.key)).map(r=>[r.key,r]));
         pulled.forEach(r=>cloudMap.set(r.key,r));
         this.scan(); // capture edits made while the pull was in flight
         const local=this.rows(), batch=[];
@@ -4382,7 +4329,7 @@ const SYNC = {
         this.scan(); // do not overwrite a concurrent local edit
         const sent=new Map(batch.map(r=>[r.key,r]));let changed=false;
         for(const row of result){
-          if (!syncEligible(row.key) || row.user_id && row.user_id!==owner) continue;
+          if (!syncKeyTransport(row.key) || row.user_id && row.user_id!==owner) continue;
           const m=this.meta.rows[row.key], requestRow=sent.get(row.key);
           // A local edit after sending must win over our own echoed merge snapshot.
           if (m && requestRow && syncTime(m)>syncTime(local.find(r=>r.key===row.key)) && m.digest!==syncDigest(JSON.stringify(requestRow.value))) {m.updated_at=new Date(Math.max(Date.now(),syncTime(row)+1)).toISOString();this.again=true;continue;}
@@ -4394,9 +4341,10 @@ const SYNC = {
           }
           this.meta.rows[row.key]={updated_at:row.updated_at,dirty:false,deleted:!!row.deleted,digest:raw===null?null:syncDigest(raw)};
         }
+        const records=await RECORD_SYNC.run(this,token,owner);changed=changed||records.changed;
         this.meta.first=true;this.meta.last=new Date().toISOString();this.storeMeta();
         if(changed)this.hydrate();
-        this.setStatus('Up to date. Changes sync automatically while signed in.');
+        this.setStatus(records.conflicts?'Synced. Conflicting versions were kept as copies; review them before deleting either.':'Up to date. Changes sync automatically while signed in.');
       };
       if(navigator.locks) await navigator.locks.request('tankmix-account-sync',operation); else await operation();
     } catch(e){
@@ -4432,11 +4380,13 @@ const SYNC = {
     $('syncPasswordCancel').onclick=()=>{this.cancelPassword();this.setStatus('Password change canceled. Local data is unchanged.');};
     $('syncNow').onclick=()=>this.run(true);
     $('syncOut').onclick=guarded(()=>this.signOut());
+    $('syncLegacyRecovery').onclick=()=>downloadLegacyRecovery();
     $('syncRecovery').onclick=()=>{if(confirm('Recovery backup includes weather API keys. Save it privately?'))this.recovery();};
     window.addEventListener('online',()=>this.run());
     window.addEventListener('focus',()=>this.run());
     document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')this.run();});
     window.addEventListener('storage',e=>{
+      if(e.key==='tankmix.accountSwitch.v2'){if(!e.newValue)this.hydrate();return;}
       if (e.key===SYNC_LOCAL.session){const s=syncRead(SYNC_LOCAL.session,null);if(!s){this.session=null;this.render();}else if(this.session && s.user.id!==this.session.user.id){this.session=null;this.setStatus('Account changed in another tab. Reload this page.');}}
       else if(syncEligible(e.key)){this.hydrate();this.changed();}
     });
@@ -4470,6 +4420,271 @@ TM.sync=SYNC;
 TM.syncChanged=()=>SYNC.changed();
 TM.syncInit=()=>SYNC.init();
 TM.syncLogic={eligible:syncEligible,firstMerge:syncFirstMerge,sameItem:syncSameItem,stable:syncStable};
+/* v2.14 field reliability. All existing tm.* data formats remain readable. */
+function weatherUnknown(d, now=Date.now()){
+  if (!d || !d.now) return true;
+  const n=d.now, station=d.wu||d.tempest;
+  if (['windMph','tempF','rh'].some(k=>n[k]===null || n[k]==='' || !Number.isFinite(Number(n[k])))) return true;
+  const ts=station ? Number(station.ts)*1000 : Date.parse(d.fetched);
+  const limit=station ? (d.wu?WU.STALE_MIN:TP.STALE_MIN)*60000 : 60*60000;
+  return !Number.isFinite(ts) || now-ts>limit || ts-now>5*60000;
+}
+TM.weatherUnknown=weatherUnknown;
+let loadingChoice='perFull';
+function renderLoadingTank(R){
+  const el=$('loadingTank'); if(!el)return;
+  if(!R.ok || !S.mix.products.length){el.hidden=true;return;}
+  el.hidden=false;
+  if(R.fullTanks===0 && R.partialGal>0)loadingChoice='perPartial';
+  if(loadingChoice==='perPartial' && !R.partialGal)loadingChoice='perFull';
+  const partial=loadingChoice==='perPartial', metric=isMetric(), key=loadingChoice, vol=partial?R.partialGal:R.tank;
+  const stepItems=buildOrder(R).flatMap(s=>s.items);
+  el.innerHTML=`<h2>Loading this tank</h2><label class="f" for="loadTankChoice">Load size</label><select id="loadTankChoice" class="loadselect">${R.fullTanks>0?`<option value="perFull"${!partial?' selected':''}>Full tank · ${showVol1(R.tank,metric)}</option>`:''}${R.partialGal>0?`<option value="perPartial"${partial?' selected':''}>Last partial tank · ${showVol1(R.partialGal,metric)}</option>`:''}</select>
+    <div class="small muted">${esc(S.mix.name||'Current mix')} · ${partial?'Last partial load':'Per full load'}</div>
+    ${R.carrierAmt.over?'<p class="warn">Products exceed tank capacity. Check rates before loading.</p>':''}
+    <div class="kvline"><b>Carrier to add</b><span class="loadamount">${showVol1(R.carrierAmt[key],metric)}</span></div>
+    ${R.carrierAmt.parts.length>1?R.carrierAmt.parts.map((p,i)=>`<div class="kvline"><span>${esc(p.label)}</span><b>${showVol1(cParts(R,key,metric)[i],metric)}</b></div>`).join(''):''}
+    ${stepItems.map(({p,o})=>`<div class="kvline"><span>${esc(p.name||'Unnamed product')}</span><span class="loadamount">${num(p.rate)>0?showAmt(o[key],o.kind,metric,p.unit).main:'Enter label rate'}</span></div>`).join('')}
+    <p class="tiny muted" style="margin-bottom:0">Amounts above are in the standard mixing sequence. Start with about half the carrier, agitate, then add products and top off to <b>${showVol1(vol,metric)}</b>. Follow each label’s order instead if different.</p>
+    ${carrierNotes(R,metric).map(t=>`<div class="tiny">${t}</div>`).join('')}
+    <button class="btn alt sm" id="loadEdit" type="button" style="margin-top:8px">Edit setup / rates</button>`;
+  $('loadTankChoice').onchange=e=>{loadingChoice=e.target.value;renderLoadingTank(TM.calc(S.mix));};
+  $('loadEdit').onclick=()=>{$('mixSetup').open=true;$('mixSetup').scrollIntoView({behavior:'smooth'});};
+}
+function registrationText(p){
+  const wa=p.waReg || (isWsdaLib(p)?p.epa:'');
+  return [p.epa && p.epa!==wa?'EPA '+p.epa:'', isWsdaLib(p)?'WSDA'+(wa?' · WA '+wa:''):''].filter(Boolean).join(' · ');
+}
+TM.registrationText=registrationText;
+function productSearchHost(){
+  if(!$("v-products").classList.contains("on"))return null;
+  $("prodLibPane").hidden=true;$("prodDetailPane").hidden=false;
+  $("prodDetailPane").innerHTML='<button class="backbar" type="button" id="prodBack">‹ My products</button><div id="prodEpaHost"></div>';
+  $("prodBack").onclick=()=>{closeProductDetail();renderResults();};
+  return $("prodEpaHost");
+}
+async function openProductSearchResult(r){return openUnifiedResult(r,productSearchHost());}
+const logDraftKey=()=> 'tankmix.logDraft.v1.'+(SYNC.meta.owner||'device');
+function logDraftInputs(r){
+  if(!r._draftInputs)return;
+  Object.entries(r._draftInputs).forEach(([id,x])=>{const e=$(id);if(e){if(e.type==='checkbox')e.checked=x;else e.value=x;}});
+}
+function saveLogDraft(){
+  const r=LOGF.editing;if(!r || !$('lgField'))return;
+  const fields={lgDt:'dt',lgGrower:'grower',lgFarm:'farm',lgField:'field',lgCrop:'crop',lgAcres:'acres',lgTanks:'tanks',lgPests:'pests',lgMix:'mixRef',lgApp:'applicator',lgLic:'license',lgRin:'rinsate',lgNotes:'notes'};
+  Object.entries(fields).forEach(([id,key])=>{if($(id))r[key]=$(id).value;});
+  r.wx=r.wx||{};
+  Object.entries({lgT:'tempF',lgRh:'rh',lgW:'windMph',lgDir:'windDirTxt',lgG:'gustMph',lgSky:'sky'}).forEach(([id,key])=>{if($(id))r.wx[key]=$(id).value;});
+  r._draftInputs={};$('logFormCard').querySelectorAll('input[id],select[id],textarea[id]').forEach(e=>{r._draftInputs[e.id]=e.type==='checkbox'?e.checked:e.value;});
+  try{localStorage.setItem(logDraftKey(),JSON.stringify(r));if($('logDraftStatus'))$('logDraftStatus').textContent='Draft saved on this phone';}
+  catch(e){if($('logDraftStatus'))$('logDraftStatus').textContent='Draft could not be saved. Storage may be full—save or export now.';}
+}
+function clearLogDraft(){localStorage.removeItem(logDraftKey());}
+function beginLog(r){
+  if(LOGF.editing && !confirm('Replace the unfinished spray record? Its draft will be discarded.'))return false;
+  clearLogDraft();if(r.id)RECORD_SYNC.noteEdit('log',r.id);LOGF.editing=r;renderLogForm();return true;
+}
+function renderFieldStatus(){
+  const e=$('fieldSync');if(!e)return;
+  const pending=Object.values(SYNC.meta.rows||{}).filter((r)=>r.dirty).length;
+  const recordPending=typeof RECORD_SYNC!=='undefined'?RECORD_SYNC.pendingCount():0;
+  const offline=navigator.onLine===false;
+  let label=!SYNC.session?'Saved on this phone · not signed in':SYNC.busy?'Syncing…':offline?'Offline · saved here; sync when connected':pending+recordPending?'Saved here · waiting to sync':SYNC.meta.last?'Synced · '+new Date(SYNC.meta.last).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}):'Saved here · waiting to sync';
+  if(!offline && SYNC.status && /paused|failed|unavailable|retry|again to resume|clock|rejected/i.test(SYNC.status))label='Saved here · sync needs attention';
+  if(offline && !SYNC.session)label='Offline · saved on this phone only';
+  e.textContent=label; $('fieldStatus').classList.toggle('sync-warn',offline || /attention|waiting/.test(label));
+}
+function renderWsdaFresh(){
+  const el=$('wsdaFresh');if(!el)return;
+  if(!WSDA.ready()){el.textContent=WSDA.err || 'WSDA index loading…';return;}
+  const d=WSDA.data, stamp=d.last_successful || d.fetched, age=Date.now()-Date.parse(stamp), checks=d.refreshes;
+  el.textContent='WSDA index last successful update: '+(stamp?new Date(stamp).toLocaleDateString():'unknown')+(checks?' · verified by category':' · older snapshot; completeness not verified')+(age>14*86400000?' · over 14 days old; verify current registration on the WA page':'')+'. Label PDFs require internet unless downloaded to Files.';
+}
+function initFieldReliability(){
+  const sizeHeader=()=>document.documentElement.style.setProperty('--headerH',document.querySelector('header.top').getBoundingClientRect().height+'px');
+  sizeHeader();window.addEventListener('resize',sizeHeader);
+  if(typeof ResizeObserver==='function')new ResizeObserver(sizeHeader).observe(document.querySelector('header.top'));
+  if(recordGuardLocal())SYNC.hydrate();
+  const r=syncRead(logDraftKey(),null);if(r && !LOGF.editing){LOGF.editing=r;renderLogForm();}
+  ['input','change'].forEach(type=>document.addEventListener(type,e=>{if(e.target.closest?.('#logFormCard'))saveLogDraft();}));
+  document.addEventListener('click',e=>{if(e.target.closest?.('#logFormCard'))queueMicrotask(saveLogDraft);});
+  window.addEventListener('pagehide',saveLogDraft);
+  ['online','offline','focus'].forEach(type=>window.addEventListener(type,()=>{renderFieldStatus();renderWx();}));
+  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden')saveLogDraft();else{renderFieldStatus();renderWx();}});
+  setInterval(()=>{renderFieldStatus();renderWx();},60000);
+  renderFieldStatus();renderWsdaFresh();
+}
+
+/* Separate transport prevents v2.13 whole-array writes from touching v2.14 records.
+   Existing tm.library/mixes/log/fields remain ordinary JSON arrays on every device. */
+const RECORD_COLLECTIONS=['library','mixes','log','fields'];
+const syncCollection=k=>RECORD_COLLECTIONS.includes(String(k).replace(/^tm\./,''));
+const syncKeyTransport=k=>syncEligible(k) && !syncCollection(k);
+const recordKey=(c,id)=>c+'/'+id;
+const recordDigest=v=>syncDigest(syncStable(v));
+const recordUuid=()=>crypto.randomUUID();
+const recordValue=(c,v)=>c==='library'?normLib(syncCopy(v)):syncCopy(v);
+const recordComparable=(c,v)=>{
+  const normalized=recordValue(c,v);
+  // Historical WSDA records carried custom:true. This derived tag is not an edit.
+  if(c==='library' && !isCustomLib(normalized))delete normalized.custom;
+  return syncStable(syncNoIds(normalized));
+};
+function accountSwitching(){
+  const flag=syncRead('tankmix.accountSwitch.v2',null);
+  if(!flag)return false;
+  if(flag.at && Date.now()-flag.at<30000)return true;
+  localStorage.removeItem('tankmix.accountSwitch.v2');return false;
+}
+const recordCacheKey=(owner,c)=>'tankmix.recordCache.v2.'+(owner||'device')+'.'+c;
+function recordCacheWrite(key,raw,owner=SYNC.meta.owner){
+  if(syncCollection(key)){
+    const shared=syncRead(SYNC_LOCAL.meta,{owner});
+    if(accountSwitching() || shared.owner && shared.owner!==owner)throw new Error('Account changed; reload before editing');
+    localStorage.setItem(recordCacheKey(owner,key.replace(/^tm\./,'')),raw);
+  }
+}
+// The preview and live app share an origin. Old tabs cannot attribute a whole-list replacement
+// as a v2.14 deletion: restore the private canonical copy, importing only unseen additions.
+function recordGuardLocal(owner=SYNC.meta.owner){
+  if(accountSwitching())return false;
+  const shared=syncRead(SYNC_LOCAL.meta,{owner});if(shared.owner && shared.owner!==owner)return false;
+  let changed=false;
+  const state=owner?RECORD_SYNC.state(owner):{rows:{}};
+  for(const c of RECORD_COLLECTIONS){
+    const raw=localStorage.getItem('tm.'+c), cached=localStorage.getItem(recordCacheKey(owner,c));
+    if(cached===null || raw===cached)continue;
+    const good=JSON.parse(cached), legacy=raw?JSON.parse(raw):[];
+    if(!Array.isArray(good)||!Array.isArray(legacy))throw new Error('Invalid collection cache; export a recovery backup');
+    const archiveKey='tankmix.legacyRecovery.v2.'+(owner||'device');
+    const archive=syncRead(archiveKey,[]);
+    archive.push({collection:c,at:new Date().toISOString(),value:legacy});
+    // Keep a bounded private recovery archive; never upload another account's local data.
+    try{localStorage.setItem(archiveKey,JSON.stringify(archive.slice(-8)));}catch(e){toast('Storage full: older-app edits could not be archived. Export a backup from the old app.');}
+    for(const item of legacy)if(item?.id && !state.rows[recordKey(c,item.id)] && !good.some(v=>String(v.id)===String(item.id)))good.push(item);
+    const next=JSON.stringify(good);recordCacheWrite('tm.'+c,next,owner);localStorage.setItem('tm.'+c,next);changed=true;
+  }return changed;
+}
+TM.beforeLocalWrite=recordCacheWrite;
+TM.recordGuardLocal=recordGuardLocal;
+function downloadLegacyRecovery(){
+  const snapshots=syncRead('tankmix.legacyRecovery.v2.'+(SYNC.meta.owner||'device'),[]);
+  const a=document.createElement('a');a.download='spraytrue-older-app-recovery-'+localDate()+'.json';
+  a.href=URL.createObjectURL(new Blob([JSON.stringify({app:'spraytrue-older-app-recovery',version:APP_VERSION,snapshots},null,2)],{type:'application/json'}));a.click();setTimeout(()=>URL.revokeObjectURL(a.href),30000);
+  toast('Recovery snapshots downloaded. Review them before manually importing older edits.');
+}
+
+const RECORD_SYNC={
+  key:owner=>'tankmix.records.v2.'+owner,
+  state(owner){return Object.assign({initialized:false,rows:{},pending:[],intents:{}},syncRead(this.key(owner),{}));},
+  noteEdit(c,id,keep=false){
+    const owner=SYNC.meta.owner;if(!owner||!id)return;const s=this.state(owner),key=recordKey(c,id);
+    if(keep && Object.hasOwn(s.intents,key))return;
+    if(s.rows[key]?.version){s.intents[key]=s.rows[key].version;this.save(owner,s);}
+  },
+  save(owner,s){localStorage.setItem(this.key(owner),JSON.stringify(s));},
+  local(){
+    const out=new Map();
+    RECORD_COLLECTIONS.forEach(c=>{
+      const a=LS.get(c,[]);if(!Array.isArray(a))throw new Error('Invalid '+c+' data; export a backup before syncing');
+      let changed=false;
+      a.forEach(v=>{if(!v || typeof v!=='object' || Array.isArray(v))throw new Error('Invalid '+c+' record');if(!v.id){v.id=recordUuid();changed=true;}out.set(recordKey(c,v.id),{collection:c,record_id:String(v.id),value:v});});
+      if(changed)localStorage.setItem('tm.'+c,JSON.stringify(a));
+    });return out;
+  },
+  pendingCount(){
+    if(!SYNC.meta.owner)return 0;
+    const s=this.state(SYNC.meta.owner);let n=s.pending.length;const local=this.local();
+    for(const [key,r] of local)if(!s.rows[key] || s.rows[key].deleted || s.rows[key].digest!==recordDigest(r.value))n++;
+    for(const [key,m] of Object.entries(s.rows))if(!m.deleted && !local.has(key))n++;
+    return n;
+  },
+  async headers(sync,token,owner){
+    const out=[];for(let offset=0;;offset+=500){
+      const rows=await sync.request('/rest/v1/user_records?user_id=eq.'+encodeURIComponent(owner)+'&select=collection,record_id,version,deleted,updated_at&order=collection.asc,record_id.asc&limit=500&offset='+offset,{},token);
+      if(!Array.isArray(rows))throw new Error('Invalid record sync response');out.push(...rows);if(rows.length<500)break;
+    }return out;
+  },
+  async values(sync,token,owner,headers,state){
+    const needed=headers.filter(r=>!state.rows[recordKey(r.collection,r.record_id)] || state.rows[recordKey(r.collection,r.record_id)].version!==r.version);
+    const out=[];
+    for(const c of RECORD_COLLECTIONS){const ids=needed.filter(r=>r.collection===c).map(r=>r.record_id);
+      for(let i=0;i<ids.length;i+=75){
+        const filter='('+ids.slice(i,i+75).map(x=>JSON.stringify(String(x))).join(',')+')';
+        const rows=await sync.request('/rest/v1/user_records?user_id=eq.'+encodeURIComponent(owner)+'&collection=eq.'+c+'&record_id=in.'+encodeURIComponent(filter)+'&select=collection,record_id,value,version,deleted,updated_at&limit=500',{},token);
+        if(!Array.isArray(rows))throw new Error('Invalid record sync response');out.push(...rows);
+      }
+    }return out;
+  },
+  async run(sync,token,owner){
+    const s=this.state(owner);let changed=recordGuardLocal(owner), local=this.local(), conflicts=0;
+    if(!s.initialized){
+      // Account-only, transactional, once-ever server bootstrap; legacy rows are never removed or rewritten.
+      await sync.request('/rest/v1/rpc/spraytrue_records_sync',{method:'POST',body:JSON.stringify({p_changes:[]})},token);
+      const head=await this.headers(sync,token,owner), cloud=await this.values(sync,token,owner,head,{rows:{}});
+      // Canonical cloud IDs dedupe products/identical saved jobs across independently populated devices.
+      for(const c of RECORD_COLLECTIONS){
+        const a=LS.get(c,[]), remote=cloud.filter(r=>r.collection===c&&!r.deleted);let normalized=false;
+        a.forEach((v,i)=>{
+          const match=remote.find(r=>syncSameItem('tm.'+c,v,r.value));if(!match)return;
+          const oldId=v.id;v=syncCopy(v);v.id=match.record_id;if(c==='mixes'&&v.mix)v.mix.id=v.id;
+          if(recordComparable(c,v)===recordComparable(c,match.value)){v=recordValue(c,match.value);s.rows[recordKey(c,v.id)]={version:match.version,digest:recordDigest(v),deleted:false};}
+          if(String(oldId)!==String(v.id) && c==='mixes'){
+            const draft=LS.get('current',null);if(draft&&draft.id===oldId){draft.id=v.id;localStorage.setItem('tm.current',JSON.stringify(draft));}
+          }
+          if(syncStable(a[i])!==syncStable(v)){a[i]=v;normalized=true;}
+        });
+        if(normalized){recordCacheWrite('tm.'+c,JSON.stringify(a),owner);localStorage.setItem('tm.'+c,JSON.stringify(a));changed=true;}
+      }
+      local=this.local();
+    }
+    // Persist stable operation IDs BEFORE the request; retrying cannot multiply conflict copies.
+    const queued=new Set(s.pending.map(p=>recordKey(p.collection,p.record_id)));
+    for(const [key,r] of local){const base=s.rows[key];
+      if(!queued.has(key) && (!base || base.deleted || base.digest!==recordDigest(r.value)))s.pending.push({...r,base_version:Object.hasOwn(s.intents,key)?s.intents[key]:(base?.version||null),deleted:false,op_id:recordUuid()});
+    }
+    for(const [key,base] of Object.entries(s.rows))if(!base.deleted && !local.has(key) && !queued.has(key)){
+      const slash=key.indexOf('/');s.pending.push({collection:key.slice(0,slash),record_id:key.slice(slash+1),value:null,base_version:Object.hasOwn(s.intents,key)?s.intents[key]:base.version,deleted:true,op_id:recordUuid()});
+    }
+    this.save(owner,s);
+    const initial=new Map([...local].map(([k,r])=>[k,recordDigest(r.value)]));
+    const preserved=new Set(s.pending.filter(p=>!p.deleted && initial.get(recordKey(p.collection,p.record_id))!==recordDigest(p.value)).map(p=>recordKey(p.collection,p.record_id)));
+    const unsent=s.pending.filter(p=>!p.acked);
+    for(let i=0;i<unsent.length;i+=100){
+      const batch=unsent.slice(i,i+100), response=await sync.request('/rest/v1/rpc/spraytrue_records_sync',{method:'POST',body:JSON.stringify({p_changes:batch.map(({acked,...p})=>p)})},token);
+      if(!response || !Array.isArray(response.applied) || batch.some(p=>!response.applied.includes(p.op_id)))throw new Error('Record sync did not acknowledge all changes');
+      const ack=new Set(response.applied);s.pending.forEach(p=>{if(ack.has(p.op_id))p.acked=true;});conflicts+=response.conflicts||0;this.save(owner,s);
+    }
+    const headers=await this.headers(sync,token,owner);
+    // On conflict the original version may be UNCHANGED. Always re-read touched records,
+    // or a local stale value could be mistaken for a fresh edit on the next heartbeat.
+    const touched=new Set(s.pending.map(p=>recordKey(p.collection,p.record_id)));
+    const pullState={rows:Object.fromEntries(Object.entries(s.rows).filter(([k])=>!touched.has(k)))};
+    const pulled=await this.values(sync,token,owner,headers,pullState);
+    const current=this.local();
+    for(const row of pulled){
+      const key=recordKey(row.collection,row.record_id), now=current.get(key), nowDigest=now?recordDigest(now.value):undefined;
+      if(preserved.has(key) || nowDigest!==initial.get(key)){
+        // Editing during a network request is NOT permission to replace the phone's work.
+        sync.again=true;continue;
+      }
+      const value=row.deleted?null:recordValue(row.collection,row.value);
+      if(row.deleted)current.delete(key);else current.set(key,{collection:row.collection,record_id:row.record_id,value});
+      s.rows[key]={version:row.version,digest:row.deleted?null:recordDigest(value),deleted:!!row.deleted};
+    }
+    // A clean baseline can have the same server version; retain it without re-downloading unchanged values.
+    RECORD_COLLECTIONS.forEach(c=>{
+      const a=[...current.values()].filter(r=>r.collection===c).map(r=>r.value), raw=JSON.stringify(a);
+      recordCacheWrite('tm.'+c,raw,owner);
+      if(raw!==localStorage.getItem('tm.'+c)){localStorage.setItem('tm.'+c,raw);changed=true;}
+    });
+    for(const p of s.pending)if(p.acked&&!preserved.has(recordKey(p.collection,p.record_id)))delete s.intents[recordKey(p.collection,p.record_id)];
+    s.pending=s.pending.filter(p=>!p.acked);s.initialized=true;this.save(owner,s);
+    if(conflicts)toast('Conflicting edits kept as copies. Review the saved items before deleting either version.');
+    return {changed,conflicts};
+  }
+};
+TM.recordSync=RECORD_SYNC;
 
 /* ---------- Spray log ---------- */
 const LOGF = { q:"", gf:"", editing:null };
@@ -4525,7 +4740,7 @@ function logProducts(mix, acres){
   if (!mix) return {products:[], tanks:"", carrier:"", carrierAmt:""};
   const m = clone(mix); if (num(acres)>0) m.area = {v:num(acres), u:"ac"};
   const R = TM.calc(m), metric = isMetric();
-  const products = m.products.map((p,i)=>{ const o = R.products[i]; return { name:p.name, epa:p.epa||"", custom:!p.epa && !!p.custom, cat:p.cat||"", rate:(p.rate||"")+" "+p.unit+(p.unit==="% v/v"?"":" "+(p.basis||"")), total: R.ok&&num(p.rate)>0 ? showAmt(o.total,o.kind,metric).main : "" }; });
+  const products = m.products.map((p,i)=>{ const o = R.products[i]; return { name:p.name, epa:p.epa||"", custom:!p.epa && !isWsdaLib(p) && !!p.custom, waReg:p.waReg||"", wsdaId:p.wsdaId, wsdaDb:p.wsdaDb, source:p.source||(isWsdaLib(p)?"wsda":p.epa?"epa":"custom"), cat:p.cat||"", rate:(p.rate||"")+" "+p.unit+(p.unit==="% v/v"?"":" "+(p.basis||"")), total: R.ok&&num(p.rate)>0 ? showAmt(o.total,o.kind,metric).main : "" }; });
   if (R.fert) products.unshift({ name:CARRIERS[R.fert.type].label+" (carrier)", epa:"", rate:fmt(R.fert.galA,2)+" gal/A", total:showVolGal(R.fert.total,metric) });
   return { products, tanks: R.ok ? +(R.tanks.toFixed(2)) : "", carrier: R.ok ? showCarrier(R,m,metric)+(R.fert?" "+CARRIERS[R.fert.type].label:" water")+" · "+showVolGal(R.tank,metric)+" tank" : "", carrierAmt: carrierAmtTxt(R, metric) };
 }
@@ -4563,9 +4778,9 @@ TM.growerNames = growerNames; TM.farmNames = farmNames;
 const gfTxt = r => [r.grower, r.farm].map(x=>String(x||"").trim()).filter(Boolean).join(" › ");
 function renderLogForm(){
   const el = $("logFormCard"), r = LOGF.editing;
-  if (!r){ closeLocSection(); el.innerHTML = `<button class="btn block" id="logNew">＋ New spray record</button>`; $("logNew").onclick = ()=>{ LOGF.editing = blankLog(); renderLogForm(); el.scrollIntoView({behavior:"smooth"}); }; return; }
+  if (!r){ closeLocSection(); el.innerHTML = `<button class="btn block" id="logNew">＋ New spray record</button>`; $("logNew").onclick = ()=>{ beginLog(blankLog()); el.scrollIntoView({behavior:"smooth"}); }; return; }
   const w = r.wx||{}, inp = (id,l,v,t,ex) => `<div><label class="f" for="${id}">${l}</label><input id="${id}" type="${t||"text"}" ${t==="number"?'inputmode="decimal" step="any" min="0"':""} value="${esc(v==null?"":v)}" ${ex||""}></div>`;
-  el.innerHTML = `<h2>${r.id?"Edit spray record":"New spray record"}</h2>
+  el.innerHTML = `<h2>${r.id?"Edit spray record":"New spray record"}</h2><p id="logDraftStatus" class="tiny muted" role="status">Draft saved on this phone</p>
   <div class="grid">
     ${inp("lgDt","Date & time","" + (r.dt||""),"datetime-local")}
     <div class="grid g2">${inp("lgGrower","Grower",r.grower,"text",'list="growerList" autocomplete="off" placeholder="e.g. Fink Farms"')}${inp("lgFarm","Farm",r.farm,"text",'list="farmList" autocomplete="off" placeholder="e.g. Home place"')}</div>
@@ -4590,7 +4805,7 @@ function renderLogForm(){
     <div><label class="f" for="lgNotes">Notes</label><textarea id="lgNotes" rows="3" placeholder="nozzles, pressure, buffer zones, observations">${esc(r.notes)}</textarea></div>
     <div class="grid g2"><button class="btn" id="lgSave">Save record</button><button class="btn alt" id="lgCancel">Cancel</button></div>
   </div>`;
-  const drawProds = () => { $("lgProds").innerHTML = r.products.length ? `<div class="small"><b>${esc(r.carrier||"")}</b>${r.carrierAmt?`<div class="tiny" id="lgCarrierAmt">${esc(r.carrierAmt)}</div>`:""}</div>`+r.products.map(p=>`<div class="kvline"><span>${esc(p.name)}${p.epa?` <span class="tiny muted">EPA ${esc(p.epa)}</span>`:""}<br><span class="tiny muted">${esc(p.rate)}</span></span><b>${esc(p.total)}</b></div>`).join("") : `<span class="muted small">No mix chosen. Pick one to record the products and amounts.</span>`; };
+  const drawProds = () => { $("lgProds").innerHTML = r.products.length ? `<div class="small"><b>${esc(r.carrier||"")}</b>${r.carrierAmt?`<div class="tiny" id="lgCarrierAmt">${esc(r.carrierAmt)}</div>`:""}</div>`+r.products.map(p=>`<div class="kvline"><span>${esc(p.name)}${registrationText(p)?` <span class="tiny muted">${esc(registrationText(p))}</span>`:""}<br><span class="tiny muted">${esc(p.rate)}</span></span><b>${esc(p.total)}</b></div>`).join("") : `<span class="muted small">No mix chosen. Pick one to record the products and amounts.</span>`; };
   const remix = () => { const lp = logProducts(mixFor(r.mixRef), r.acres); r.products = lp.products; r.carrier = lp.carrier; r.carrierAmt = lp.carrierAmt; r.mixName = r.mixRef ? (mixFor(r.mixRef)||{}).name||"" : ""; if (lp.tanks!=="" ) { r.tanks = lp.tanks; $("lgTanks").value = lp.tanks; } drawProds(); };
   drawProds();
   bindLocSection(r);
@@ -4610,7 +4825,7 @@ function renderLogForm(){
   const applyWx = (d, extra) => { const n = d.now;
     r.wx = Object.assign({ tempF:n.tempF, rh:n.rh, windMph:n.windMph, windDir:n.windDir, windDirTxt:compass(n.windDir), gustMph:n.gustMph, sky:$("lgSky").value, at:n.at, tz:d.tz, place:d.place, lat:d.lat, lon:d.lon, source:d.source+" at "+hhmm(n.at)+" "+(d.tz||"")+" for "+(d.place||""), manual:false }, extra||{});
     $("lgT").value = n.tempF; $("lgRh").value = n.rh; $("lgW").value = n.windMph; $("lgDir").value = compass(n.windDir); $("lgG").value = n.gustMph; $("lgWxSrc").textContent = r.wx.source;
-    $("lgWxFind").hidden = true; };
+    $("lgWxFind").hidden = true; saveLogDraft(); };
   const wxFail = e => "Couldn't get weather"+(navigator.onLine===false?" (offline)":"")+(e&&e.message?": "+esc(e.message):"")+". Type the readings in, or try again.";
   // fetch + fill for a spot; adopt = also make it the Weather tab's location if none is set
   const fillAt = async (loc, adopt) => {
@@ -4707,7 +4922,7 @@ function renderLogForm(){
   };
   $("lgWxQGo").onclick = findPlace;
   $("lgWxQ").addEventListener("keydown", e=>{ if (e.key==="Enter"){ e.preventDefault(); findPlace(); } });
-  $("lgCancel").onclick = ()=>{ LOGF.editing = null; renderLogForm(); };
+  $("lgCancel").onclick = ()=>{ if(!confirm("Discard this unfinished spray record?"))return; clearLogDraft(); LOGF.editing = null; renderLogForm(); };
   $("lgSave").onclick = ()=>{
     const v = id => $(id).value.trim();
     Object.assign(r, { dt:v("lgDt"), grower:v("lgGrower"), farm:v("lgFarm"), field:v("lgField"), crop:v("lgCrop"), acres:v("lgAcres"), tanks:v("lgTanks"), pests:v("lgPests"), applicator:v("lgApp"), license:v("lgLic"), rinsate:$("lgRin").value.trim(), notes:$("lgNotes").value.trim() });
@@ -4716,13 +4931,14 @@ function renderLogForm(){
     const le = readLocSection(r); if (le){ toast(le); $("lgCoord").focus(); return; }
     if (r.loc){ S.settings.lastFieldLoc = {lat:r.loc.lat, lon:r.loc.lon};
       if (r.saveField && r.field){ const f = upsertField(r.field, r.loc, {grower:r.grower, farm:r.farm}); if (f) r.loc.fieldId = f.id; renderFields(); } }
-    delete r.saveField;
+    delete r.saveField; delete r._draftInputs;
     const now = Date.now();
     if (r.id){ const i = S.log.findIndex(x=>x.id===r.id); r.updated = now; if (i>=0) S.log[i] = r; else S.log.push(r); }
     else { r.id = uid(); r.created = r.updated = now; S.log.push(r); }
     S.settings.lastApplicator = r.applicator; S.settings.lastLicense = r.license; S.settings.lastGrower = r.grower; S.settings.lastFarm = r.farm; persist("settings");
-    persist("log"); LOGF.editing = null; renderLogForm(); renderLog(); toast("Spray record saved");
+    if(persist("log")===false)return; clearLogDraft(); LOGF.editing = null; renderLogForm(); renderLog(); toast("Spray record saved");
   };
+  logDraftInputs(r); saveLogDraft();
 }
 function gfMatch(r){ const g = LOGF.gf; if (!g) return true; const [k, gr, fa] = g.split("\u0001");
   return lc(r.grower)===lc(gr) && (k==="g" || lc(r.farm)===lc(fa)); }
@@ -4747,7 +4963,7 @@ function renderLog(){
   const el = $("logList"); if (!el) return;
   drawGfFilter();
   const L = filteredLog(); $("logCount").textContent = S.log.length;
-  el.innerHTML = L.length ? L.map(r=>`<div class="res" data-id="${r.id}"><button class="link" data-act="open"><div class="nm">${esc(r.field||"(no field)")}${r.crop?" · "+esc(r.crop):""}</div>
+  el.innerHTML = L.length ? L.map(r=>`<div class="res" data-id="${r.id}"><button class="link" data-act="open"><div class="nm">${esc(r.field||"(no field)")}${r._syncConflict?` <span class="badge">Conflict copy</span>`:""}${r.crop?" · "+esc(r.crop):""}</div>
     ${gfTxt(r)?`<div class="tiny" style="font-weight:600">${esc(gfTxt(r))}</div>`:""}<div class="tiny muted">${esc(dtTxt(r.dt))} · ${r.acres?esc(r.acres)+" ac · ":""}${esc(r.mixName||"no mix")}${r.loc&&GEO.valid(r.loc.lat,r.loc.lon)?" · 📍":""}${r.wx&&r.wx.windMph!==""&&r.wx.windMph!=null?" · wind "+esc(r.wx.windMph)+" mph "+esc(r.wx.windDirTxt||""):""}</div></button>
     <button class="iconbtn" data-act="menu" title="Options">⋯</button></div>`).join("") : `<div class="empty">${S.log.length?"No records match the filter.":"No spray records yet."}</div>`;
   el.querySelectorAll("[data-act]").forEach(b=>b.onclick=()=>{
@@ -4756,19 +4972,19 @@ function renderLog(){
     openDlg(r.field||"Spray record", `<div class="grid"><button class="btn alt" id="lrEdit">Edit</button><button class="btn alt" id="lrPrint">🖨 Print record</button><button class="btn alt" id="lrDup">Duplicate (new date)</button><button class="btn danger" id="lrDel">Delete</button></div>`);
     $("lrEdit").onclick = ()=>{ closeDlg(); editLog(r); };
     $("lrPrint").onclick = ()=>{ closeDlg(); printLog([r]); };
-    $("lrDup").onclick = ()=>{ closeDlg(); const c = clone(r); c.id = null; c.dt = nowLocal(); c.wx = {}; LOGF.editing = c; renderLogForm(); $("logFormCard").scrollIntoView({behavior:"smooth"}); };
+    $("lrDup").onclick = ()=>{ closeDlg(); const c = clone(r); c.id = null; c.dt = nowLocal(); c.wx = {}; beginLog(c); $("logFormCard").scrollIntoView({behavior:"smooth"}); };
     $("lrDel").onclick = ()=>{ if (!confirm("Delete this spray record?")) return; S.log = S.log.filter(x=>x!==r); persist("log"); closeDlg(); renderLog(); toast("Deleted"); };
   });
 }
 TM.renderLog = renderLog;
-function editLog(r){ LOGF.editing = clone(r); renderLogForm(); $("logFormCard").scrollIntoView({behavior:"smooth"}); }
+function editLog(r){ beginLog(clone(r)); $("logFormCard").scrollIntoView({behavior:"smooth"}); }
 function recHtml(r, print){
   const w = r.wx||{}, L = r.loc, hasL = L && GEO.valid(L.lat, L.lon), sk = print && hasL && L.boundary && L.boundary.length>=3 ? GEO.svg(L.boundary, 120, L) : "";
   return `<table class="kv"><tr><th>Date / time</th><td>${esc(dtTxt(r.dt))}</td></tr>${r.grower?`<tr><th>Grower</th><td>${esc(r.grower)}</td></tr>`:""}${r.farm?`<tr><th>Farm</th><td>${esc(r.farm)}</td></tr>`:""}<tr><th>Field</th><td>${esc(r.field)}${r.crop?" · "+esc(r.crop):""}</td></tr>
     ${hasL?`<tr><th>Field location</th><td>${locSummary(L, print)}${sk?`<div style="display:flex;gap:10px;align-items:flex-start;margin-top:6px"><div style="flex:0 0 auto">${sk}</div><span style="font-size:8.5pt;color:#444">Boundary sketch (red dot = pin).<br>Corners: ${L.boundary.map(p=>GEO.fmt(p[0],p[1])).join("; ")}</span></div>`:""}</td></tr>`:""}
     <tr><th>Acres / loads</th><td>${esc(r.acres)} ac · ${esc(r.tanks)} tank loads</td></tr>${r.pests?`<tr><th>Target pests</th><td>${esc(r.pests)}</td></tr>`:""}
     <tr><th>Mix</th><td>${esc(r.mixName||"—")}<br><span class="small muted">${esc(r.carrier||"")}</span>${r.carrierAmt?`<br><span class="small">${esc(r.carrierAmt)}</span>`:""}</td></tr>
-    <tr><th>Products</th><td>${(r.products||[]).map(p=>`${esc(p.name)}${p.epa?" (EPA "+esc(p.epa)+")":p.custom?" (custom"+((CCAT[p.cat]||{}).l?", "+esc(CCAT[p.cat].l):"")+")":""}: ${esc(p.rate)}${p.total?" · total "+esc(p.total):""}`).join("<br>")||"—"}</td></tr>
+    <tr><th>Products</th><td>${(r.products||[]).map(p=>`${esc(p.name)}${registrationText(p)?" ("+esc(registrationText(p))+")":p.custom?" (custom"+((CCAT[p.cat]||{}).l?", "+esc(CCAT[p.cat].l):"")+")":""}: ${esc(p.rate)}${p.total?" · total "+esc(p.total):""}`).join("<br>")||"—"}</td></tr>
     <tr><th>Weather</th><td>${[w.tempF!==""&&w.tempF!=null?esc(w.tempF)+"°F":"", w.rh!==""&&w.rh!=null?esc(w.rh)+"% RH":"", w.windMph!==""&&w.windMph!=null?"wind "+esc(w.windMph)+" mph "+esc(w.windDirTxt||""):"", w.gustMph!==""&&w.gustMph!=null?"gusts "+esc(w.gustMph)+" mph":"", esc(w.sky||"")].filter(Boolean).join(" · ")||"—"}${w.source?`<br><span class="tiny muted">${esc(w.source)}${w.manual?" · edited by hand":""}</span>`:""}</td></tr>
     <tr><th>Applicator</th><td>${esc(r.applicator)}${r.license?" · #"+esc(r.license):""}</td></tr>
     ${r.rinsate?`<tr><th>Rinsate / cleanout</th><td>${esc(r.rinsate)}</td></tr>`:""}${r.notes?`<tr><th>Notes</th><td>${esc(r.notes)}</td></tr>`:""}</table>`;
@@ -4790,17 +5006,17 @@ function printLog(recs){
 }
 function recTxt(r){ const w = r.wx||{}, L = r.loc, hasL = L && GEO.valid(L.lat, L.lon);
   return [dtTxt(r.dt)+" · "+(r.field||"")+(r.crop?" · "+r.crop:""), r.grower||r.farm ? [r.grower?"Grower: "+r.grower:"", r.farm?"Farm: "+r.farm:""].filter(Boolean).join(" · ") : "", hasL ? "Location: "+GEO.fmt(L.lat, L.lon)+" ("+GEO.dms(L.lat, L.lon)+") "+GEO.mapsUrl(L.lat, L.lon)+(L.boundary&&L.boundary.length>=3?" · boundary "+fmt(+L.bAcres||GEO.acres(L.boundary),1)+" ac":"") : "", (r.acres?r.acres+" ac · ":"")+(r.tanks?r.tanks+" tank loads":""), r.pests?"Pests: "+r.pests:"", "Mix: "+(r.mixName||"—")+(r.carrier?" ("+r.carrier+")":""), r.carrierAmt||"",
-    ...(r.products||[]).map(p=>"  - "+p.name+(p.epa?" (EPA "+p.epa+")":"")+": "+p.rate+(p.total?" · total "+p.total:"")),
+    ...(r.products||[]).map(p=>"  - "+p.name+(registrationText(p)?" ("+registrationText(p)+")":"")+": "+p.rate+(p.total?" · total "+p.total:"")),
     "Weather: "+[w.tempF?w.tempF+"°F":"", w.rh?w.rh+"% RH":"", w.windMph?"wind "+w.windMph+" mph "+(w.windDirTxt||""):"", w.gustMph?"gusts "+w.gustMph+" mph":"", w.sky||""].filter(Boolean).join(" · "),
     "Applicator: "+(r.applicator||"")+(r.license?" #"+r.license:""), r.rinsate?"Rinsate: "+r.rinsate:"", r.notes?"Notes: "+r.notes:""].filter(Boolean).join("\n"); }
 TM.printLog = printLog;
 function csvCell(v){ v = v==null ? "" : String(v); return /[",\n\r]/.test(v) ? '"'+v.replace(/"/g,'""')+'"' : v; }
 function logCsv(recs){
-  const head = ["Date/time","Grower","Farm","Field","Crop","Latitude","Longitude","Map link","Mapped boundary acres","Boundary corners (lat lon; ...)","Acres","Tank loads","Target pests","Mix","Carrier","Carrier amounts","Products (rate; total)","EPA reg nos","Temp F","RH %","Wind mph","Wind from","Gust mph","Sky","Weather source","Applicator","License","Rinsate/cleanout","Notes"];
+  const head = ["Date/time","Grower","Farm","Field","Crop","Latitude","Longitude","Map link","Mapped boundary acres","Boundary corners (lat lon; ...)","Acres","Tank loads","Target pests","Mix","Carrier","Carrier amounts","Products (rate; total)","EPA reg nos","Temp F","RH %","Wind mph","Wind from","Gust mph","Sky","Weather source","Applicator","License","Rinsate/cleanout","Notes","WA reg nos","Product sources"];
   const rows = recs.map(r=>{ const w = r.wx||{}, P = r.products||[];
     const L = r.loc && GEO.valid(r.loc.lat, r.loc.lon) ? r.loc : null, B = L && L.boundary && L.boundary.length>=3 ? L.boundary : null;
     return [r.dt, r.grower||"", r.farm||"", r.field, r.crop, L?L.lat:"", L?L.lon:"", L?GEO.mapsUrl(L.lat, L.lon):"", B?+(+L.bAcres||GEO.acres(B)).toFixed(2):"", B?B.map(p=>p[0]+" "+p[1]).join("; "):"", r.acres, r.tanks, r.pests, r.mixName, r.carrier, r.carrierAmt||"", P.map(p=>p.name+" ("+p.rate+(p.total?"; "+p.total:"")+")").join(" | "), P.map(p=>p.epa).filter(Boolean).join(" | "),
-      w.tempF, w.rh, w.windMph, w.windDirTxt||compass(w.windDir), w.gustMph, w.sky, w.source ? w.source+(w.manual?" (edited by hand)":"") : (w.tempF||w.windMph ? "Entered by hand" : ""), r.applicator, r.license, r.rinsate, r.notes]; });
+      w.tempF, w.rh, w.windMph, w.windDirTxt||compass(w.windDir), w.gustMph, w.sky, w.source ? w.source+(w.manual?" (edited by hand)":"") : (w.tempF||w.windMph ? "Entered by hand" : ""), r.applicator, r.license, r.rinsate, r.notes, P.map(p=>p.waReg||(isWsdaLib(p)?p.epa:"")).filter(Boolean).join(" | "), P.map(p=>p.name+": "+(isWsdaLib(p)?"WSDA":p.epa?"EPA":"Custom")).join(" | ")]; });
   return [head, ...rows].map(r=>r.map(csvCell).join(",")).join("\r\n");
 }
 TM.logCsv = () => logCsv(filteredLog());
@@ -4828,13 +5044,13 @@ function init(){
   if (S.settings.wxSrc==="wunderground" && WU.st.accounts.length) WU.refreshAll();
   document.addEventListener("click", e=>{ const g = e.target.closest("[data-go]"); if (g){ e.preventDefault(); showTab(g.dataset.go); } });
   if (window.TM_PREVIEW) document.querySelector("header.top .title").insertAdjacentHTML("afterbegin", '<span class="pvw" style="margin:0 0 2px" title="Preview build: not installed, no offline cache">Preview</span>');
-  $("btnLogMix").onclick = ()=>{ showTab("log"); LOGF.editing = blankLog(); renderLogForm(); setTimeout(()=>$("logFormCard").scrollIntoView({behavior:"smooth"}),60); };
+  $("btnLogMix").onclick = ()=>{ showTab("log"); if(!beginLog(blankLog()))return; setTimeout(()=>$("logFormCard").scrollIntoView({behavior:"smooth"}),60); };
   updateSrc();
   // v2.8: warm the WSDA index in the background (no CORS; local JSON)
   if (typeof wsdaLoad==="function") wsdaLoad().catch(()=>{});
   bindMixInputs(); bindSaved(); bindLibrary(); bindSettings(); bindPrint();
   loadMixIntoForm(); renderSaved(); renderLibrary(); renderCal(); renderLogView();
-  TM.syncInit();
+  initFieldReliability(); TM.syncInit();
   window.addEventListener("afterprint", ()=>{ TM.printMode = null; });
   if ("serviceWorker" in navigator && /^https?:$/.test(location.protocol) && document.querySelector('link[rel="manifest"]') && !window.TM_PREVIEW){
     // the new worker activates right away (skipWaiting); when it takes over a page that was already running, offer a refresh

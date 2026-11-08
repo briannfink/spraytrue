@@ -22,6 +22,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
+      - name: Test incomplete-refresh rejection (offline fixtures)
+        run: python3 -m unittest discover -s tools -p test_wsda.py -v
       - name: Scrape WSDA public search
         run: python3 tools/update_wsda.py --adjuvants --minrisk --fertilizer
       - name: Copy dataset to published live and preview paths
@@ -64,3 +66,8 @@ jobs:
         if: steps.commit.outputs.changed == 'true'
         id: deployment
         uses: actions/deploy-pages@v4
+      - name: Report a failed or incomplete refresh
+        if: failure()
+        run: |
+          echo "### WSDA refresh rejected or failed" >> "$GITHUB_STEP_SUMMARY"
+          echo "No incomplete dataset is published. The last successful dataset remains in place. See the scrape/test logs for the expected and received product counts." >> "$GITHUB_STEP_SUMMARY"

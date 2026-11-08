@@ -1,4 +1,36 @@
-# SprayTrue (v2.13.0)
+# SprayTrue (v2.14.0 — PREVIEW ONLY)
+
+## v2.14.0 — field reliability and safer sync (preview only)
+
+- Preview: https://briannfink.github.io/spraytrue/preview/ . Candidate installed-build cache: `spraytrue-2.14.0-e7b65abe` (preview intentionally has no service worker). Live root **must remain v2.13.0**, cache `spraytrue-2.13.0-dd963b06`, until Brian approves. Source backup: `/tmp/tankmix-app-v2130`.
+- **1 — Weather:** stale/missing readings show **Conditions unknown**, never a green Good/within-guidelines message. Station freshness uses its existing station threshold; model snapshots expire after 60 minutes. The display rechecks each minute and on focus/reconnect. Labels still take precedence.
+- **2 — Saved state:** edited saved jobs show **Unsaved changes** until explicitly saved. Comparison normalizes legacy fertilizer defaults and ignores object-property order.
+- **3 — WA traceability:** new spray-record product snapshots retain `waReg`, `wsdaId`, `wsdaDb`, and `source`; WSDA products are not classified as Custom. Screen/print/PDF/text sharing show WA registration; CSV adds WA reg nos and Product sources at the end, preserving all previous column positions. JSON backups retain additive fields. Previously saved logs that already discarded these fields cannot be reconstructed reliably; they are not silently rewritten.
+- **4 — Record sync:** library products, saved mixes, spray records and fields now sync separately with server revisions, tombstones, durable retry receipts and conflict copies. A stale edit or edit-versus-delete keeps a recoverable copy rather than overwriting the other version. Open mix/library/log editors remember their edit-start revision. First contact canonicalizes duplicate product/identical mix IDs and retains distinct data. Settings, weather accounts and the current draft still use the existing key-level transport.
+- **5 — Loading this tank:** an immediately available full/last-partial selector shows carrier and product amounts in mixing sequence. Prepared-job setup collapses automatically; Edit setup / rates opens it. Detailed editable product cards, full mixing-order instructions, calculations, cost and Clear/Undo remain available.
+- **6 — Always-visible status:** every tab shows local-only / waiting / syncing / synced / offline / attention-needed status. Offline readiness explains that installed calculations, saved data and PDF creation work offline; fresh weather, new EPA searches, map imagery and label links need a connection. Download needed labels to Files in advance. Preview deliberately has no worker/install cache.
+- **7 — Log drafts:** unfinished forms autosave on input/change and page hide, restore after reopening, and preserve typed location controls and notes. Cancel/replacing a draft requires confirmation; saving clears it. Drafts are device-only, separated by account under `tankmix.logDraft.v1.<owner>`.
+- **8 — WSDA updates:** every selected scrape must have a positive advertised total matching the unique received count. Failed/short/empty refreshes raise an error before writing anything. Successful category replacements are atomic, retain untouched categories, and record per-category verified dates/counts and a conservative last-successful date. The workflow runs offline fixture tests first and reports failures in its run summary. No full scrape was run for this release; bundled data is unchanged. The search shows last successful update and flags old/unverified snapshots.
+- **9 — One product search:** Products contains the full original Lookup engine, including crop/site, typed site, pest, inactive and pagination functionality. Advanced filters are collapsible. Tools › Lookup and `showTab('lookup')` route directly to the same Products search with filters expanded. Search products replaces Search EPA. In My products indicators and full detail/library actions remain.
+- **10 — Clear action scope:** global buttons now say Save mix and Print mix; log printing remains separate.
+
+### Additive Supabase migration / compatibility
+
+Project `tankmix` (`qcwneqqfiyuouokklnpg`) gained `public.user_records` (owner/collection/record ID, JSON value, revision UUID, server timestamp, deleted flag), `public.user_record_ops` (owner-scoped idempotency receipts), and security-invoker `public.spraytrue_records_sync(jsonb)`. Both tables have authenticated-owner-only RLS and no anonymous grants. The RPC serializes account writes, compares revision IDs, and retains conflict copies. Migration: `supabase/migrations/20261108223254_spraytrue_record_sync.sql`.
+
+**Existing `user_data` rows, policies and `tankmix_sync` were NOT modified.** The first v2.14 sync transaction copies the four legacy collections once, without deleting/rewriting their original rows. v2.13 can still use its old transport but cannot address the new record store. Use v2.14 or newer on all working devices after approval: edits/deletes to existing records made only in an old version after migration do not overwrite the new store.
+
+Because live and preview share localStorage, v2.14 also keeps owner-separated private collection caches. If an old tab replaces a shared array, v2.14 restores its canonical collection, imports only genuinely unseen additions (not known tombstones), and retains a bounded private older-app recovery archive. Settings offers **Download older-app recovery snapshots** when needed. These files require manual review, not blind import. Extra local recovery copies consume storage; export a backup if storage warnings appear. `tm.*` arrays and backup marker `app:"tankmix-pro"` remain compatible. No service-role key, password, auth user or existing synced data was changed. Weather API keys retain their previous private-account sync behavior.
+
+### Verification and limitations
+
+- `tools/test19.js`: 91 assertions over the assembled app in an isolated non-browser DOM, covering all 10 items, actual PDF bytes, two-device merging/conflicts/retry/in-flight edits, first-contact dedupe, older-tab overwrite protection, full auth/sync coordination and account isolation. Auth/network are mocked; no real email/password actions.
+- `python3 -m unittest discover -s tools -p test_wsda.py -v`: 11 offline fixture tests, including incomplete/duplicate/empty rejection and byte-for-byte preservation of the last-good file on failure.
+- Supabase transaction tests: bootstrap, conflict-copy preservation, retry idempotence, tombstone-versus-edit, cross-owner read/write denial. All test writes rolled back; no production records edited.
+- Existing browser suites `tools/test.js` through `test18.js` retained and updated for canonical search, collapsible setup and mocked record endpoints; all syntax-checked. They have **not been rerun** in this session: no browser delegate is available, and Shell-driven browser automation is not permitted. Real Safari/iPhone install, offline update, auth recovery and Share PDF still need a browser/device pass. New static phone-width renders are clearly labeled as non-browser renders, not screenshots proving browser layout.
+- Static render artifacts (not browser screenshots): `/workspace/tankmix-app/screenshot-v214-1-mix.png`, `screenshot-v214-2-weather.png`, `screenshot-v214-3-products.png`, `screenshot-v214-4-log-draft.png`. Generated from the new build with sample data using `tools/render-phone-static.js` and WeasyPrint, with document-renderer layout accommodations; they do not verify native control/layout behavior.
+- Confirmed before deployment: Brian retains all 12 legacy keys (21 products, 6 mixes, 0 logs, 0 fields); both new tables remain empty after rolled-back integration tests.
+- Security advisors: no new table/RLS/function issues. The existing **Leaked Password Protection Disabled** Auth warning remains; see https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection . No plan or Auth settings changed.
 
 ## SprayTrue rename (v2.13.0 — approved live)
 
@@ -54,7 +86,7 @@ Tests: all existing regression suites plus `tools/test17.js` for password login/
 - **First sign-in:** union collections, dedupe products by ID/EPA/WA registration (custom by name), and identical saved mixes irrespective of device-generated IDs. Merge settings/weather accounts without dropping distinct entries. An existing cloud draft takes precedence over a new-device draft. A **device-only pre-sync recovery backup** preserves the complete original device snapshot, including API keys, in case of conflicting data; download it privately from Settings. Ordinary export/import still works unchanged.
 - After that, conflict resolution is **whole-key newest `updated_at` wins**, not per-record merging. Simultaneous offline changes to different records within the same library/log key can overwrite one another; keep backups for important jobs. Device clocks must be correct (future timestamps >4 minutes pause sync). Server timestamp checks prevent stale writers from clobbering newer snapshots.
 - **Privacy:** `tm.tempest` and `tm.wu` contain personal API tokens. They are intentionally synced to the signed-in user's RLS-protected rows; this is NOT end-to-end encryption. Auth tokens, owner metadata and recovery backups are device-only (`tankmix.*`, never uploaded or included in ordinary backups). Sign-out keeps local data. Switching to another account first archives the former account locally, then starts a separate workspace rather than uploading another user's data.
-- **Scope:** live and preview both use v2.13.0; preview shares site storage with live. Older live builds do not sync themselves. Reopen/focus the preview to scan changes made by older builds.
+- **Historical v2.13 scope:** live remains v2.13.0; preview is now v2.14.0 and shares site storage with live. Older live builds do not participate in the new per-record merge. Reopen/focus the preview to scan changes made by older builds.
 
 ## Share / print PDF (v2.11.0)
 - **Share / Save PDF** and **Download PDF** build a real `application/pdf` from the on-screen print sheet (mix or spray-log). Filename ends in `.pdf`.
@@ -187,8 +219,8 @@ Migration only adds fields: library items get `custom`/`mfr`/`cat`/`phys`, and l
 ## Printing (v2.1)
 Print opens a full-page print view of the mix sheet or spray records. It has these buttons:
 - **Print** calls `window.print()` directly from the tap.
-- **Share / Save PDF** uses the Web Share API (a printable `.html` file, or text if the browser can't share files).
-- **Download** saves a standalone printable `.html` file.
+- **Share / Save PDF** shares a real `.pdf` file, with text/download fallbacks when file sharing is unavailable.
+- **Download** saves a real `.pdf` file.
 
 iPhone and iPad home-screen apps ignore `window.print()`. The app detects standalone mode (`navigator.standalone` or `display-mode: standalone`) and points to Share instead. If no print dialog opens within 1.5 s on any platform, the same hint appears.
 

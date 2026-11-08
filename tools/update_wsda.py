@@ -153,6 +153,12 @@ def next_page_target(html, grid="dgProducts", colspan="14"):
       return tgt  # forward ellipsis only
   return None
 
+def verify_complete(kind, total, rows):
+  """Fail closed: do not publish a partial/empty scrape as a fresh dataset."""
+  if total <= 0 or len(rows) != total:
+    raise RuntimeError(f"INCOMPLETE WSDA {kind}: expected {total} unique products, received {len(rows)}. Last successful dataset was NOT replaced.")
+  return rows
+
 def scrape_pest(session: Session, kind: str, checkboxes: dict) -> list:
   html, url = session.get(BASE + "/Default")
   f = hidden(html); f["btnSearchPest"] = "Search for Pesticide Products"
@@ -185,7 +191,7 @@ def scrape_pest(session: Session, kind: str, checkboxes: dict) -> list:
     page += 1
     if page > 900: break
   log(f"[{kind}] done {len(seen)}")
-  return list(seen.values())
+  return verify_complete(kind, total, list(seen.values()))
 
 def scrape_fert(session: Session) -> list:
   html, url = session.get(BASE + "/Default")
@@ -245,7 +251,7 @@ def scrape_fert(session: Session) -> list:
     page += 1
     if page > 900: break
   log(f"[fertilizer] done {len(seen)}")
-  return list(seen.values())
+  return verify_complete("fertilizer", total, list(seen.values()))
 
 def compact(products):
   """Drop empty strings; keep stable key order for gzip-friendly diffs."""
@@ -285,25 +291,34 @@ def main():
 
   # Merge with existing file so partial refreshes keep other kinds
   existing = []
+  previous = {}
   if OUT.exists():
     try:
-      existing = json.loads(OUT.read_text()).get("products") or []
+      previous = json.loads(OUT.read_text())
+      existing = previous.get("products") or []
     except Exception:
       existing = []
   by_id = {(p.get("db","waprs"), p["id"]): p for p in existing if "id" in p}
 
   s = Session()
+  fresh = {}
   if args.adjuvants:
-    for p in scrape_pest(s, "adjuvant", {"chkSpray": "on"}):
-      by_id[(p["db"], p["id"])] = p
+    fresh["adjuvant"] = scrape_pest(s, "adjuvant", {"chkSpray": "on"})
   if args.minrisk:
-    for p in scrape_pest(s, "25b", {"chk25b": "on"}):
-      by_id[(p["db"], p["id"])] = p
+    fresh["25b"] = scrape_pest(s, "25b", {"chk25b": "on"})
   if args.section3:
-    for p in scrape_pest(s, "section3", {"chkSection3": "on"}):
-      by_id[(p["db"], p["id"])] = p
+    fresh["section3"] = scrape_pest(s, "section3", {"chkSection3": "on"})
   if args.fertilizer:
-    for p in scrape_fert(s):
+    fresh["fertilizer"] = scrape_fert(s)
+  stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+  refreshes = dict(previous.get("refreshes") or {})
+  # Only fully validated categories replace old rows; nothing is written if ANY scrape fails.
+  by_id = {k:p for k,p in by_id.items() if p.get("kind") not in fresh}
+  for kind, rows in fresh.items():
+    if not rows:
+      raise RuntimeError(f"Empty WSDA {kind}; last successful dataset retained")
+    refreshes[kind] = {"at": stamp, "count": len(rows), "verified": True}
+    for p in rows:
       by_id[(p["db"], p["id"])] = p
 
   products = compact(sorted(by_id.values(), key=lambda p: (p.get("kind",""), p.get("name",""), p.get("id",0))))
@@ -313,13 +328,19 @@ def main():
   payload = {
     "source": "WSDA WAPRS/WALTR public search",
     "url": BASE + "/Default",
-    "fetched": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    "fetched": stamp,
+    "last_successful": min((refreshes.get(k) or {}).get("at") or previous.get("fetched") or stamp for k in counts),
+    "refreshes": refreshes,
     "counts": counts,
     "n": len(products),
     "products": products,
   }
   OUT.parent.mkdir(parents=True, exist_ok=True)
-  OUT.write_text(json.dumps(payload, separators=(",", ":"), ensure_ascii=False))
+  import os, tempfile
+  with tempfile.NamedTemporaryFile(mode="w", dir=OUT.parent, delete=False) as f:
+    json.dump(payload, f, separators=(",", ":"), ensure_ascii=False)
+    tmp = f.name
+  os.replace(tmp, OUT)
   log(f"wrote {OUT} ({OUT.stat().st_size} bytes, {len(products)} products) counts={counts}")
 
 if __name__ == "__main__":
