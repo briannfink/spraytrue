@@ -231,7 +231,21 @@ details.setup>summary,#productAdvanced>summary{font-weight:750;cursor:pointer;mi
 #loadingTank .loadamount{font-size:23px;font-weight:850;white-space:nowrap} #loadingTank .kvline{align-items:center}
 #loadingTank .loadselect{margin-bottom:8px} #loadingTank h2{margin-bottom:8px}
 .pill.unknown{background:var(--chip);color:var(--warn);border:1px solid var(--warn)}
-#v-mix.loading #tankStats{display:none}
+#v-mix [hidden],header.top button[hidden]{display:none!important}
+#mixJobsCard{padding:12px 14px} #mixJobsCard .row{flex-wrap:nowrap;align-items:stretch}
+#mixJobsSel{flex:1;min-width:0} #btnClearMix{flex:0 0 auto;padding:0 10px}
+#mixMode{display:flex;width:100%;margin:0 0 12px} #mixMode button{flex:1;min-height:48px;font-size:16px}
+#mixMode button:disabled{opacity:.5} #mixMode button:focus-visible{outline:3px solid var(--accent);outline-offset:-4px}
+#mixEditPane>.card h2{margin-bottom:12px} #mixSetup>summary{font-size:18px}
+#mixSetup .grid{margin-top:10px} #mixNext{margin-top:12px}
+#v-mix .productExtras>summary,#mixMore>summary{cursor:pointer;font-weight:650;min-height:44px;line-height:44px}
+#v-mix .productExtras{margin-top:8px;border-top:1px solid var(--line)}
+#loadingTank .load-product{border-bottom:1px solid var(--line);padding:8px 0;display:flex;align-items:center;justify-content:space-between;gap:12px}
+#loadingTank .load-product>span:first-child{min-width:0;overflow-wrap:anywhere}
+#loadingTank .loadamount{flex:0 0 auto;font-size:23px;font-weight:850}
+#loadingTank .load-meta{margin:6px 0 10px} #loadingTank .note{margin:10px 0}
+#tankStats{margin:0 0 10px} #mixMore{margin-top:12px} #mixMore .card{box-shadow:none;border:0;padding:0;margin:8px 0}
+#mixEditPane .prod:last-child{margin-bottom:0} #mixNext:disabled{opacity:.55}
 </style>
 <style>/* required styles */
 
@@ -911,57 +925,47 @@ svg.leaflet-image-layer.leaflet-interactive path {
 <main>
 <section class="view on" id="v-mix" role="tabpanel">
   <div class="card" id="mixJobsCard">
-    <h2 style="margin-bottom:8px">Saved Mixes</h2>
-    <select id="mixJobsSel" aria-label="Choose a saved mix">
-      <option value="">Choose a saved mix…</option>
-    </select>
-    <p class="tiny muted" id="mixJobsHint" style="margin:8px 0 0">Saved mixes also stay under Settings › Saved.</p>
-  </div>
-  <div class="card" id="loadingTank" aria-live="polite"></div>
-  <details class="card setup" id="mixSetup" open><summary>Sprayer &amp; field setup</summary>
-    <h2 style="justify-content:space-between">Sprayer &amp; field <button class="btn danger sm" id="btnClearMix" type="button" aria-label="Clear the form and start a new mix">✕ Clear</button></h2>
-    <div class="grid">
-      <div>
-        <label class="f" for="mixName">Mix name</label>
-        <input id="mixName" type="text" placeholder="e.g. Soybean post, north 85" autocomplete="off">
-      </div>
-      <div class="grid g2">
-        <div>
-          <label class="f" for="tankSize">Tank size</label>
-          <div class="inrow"><input id="tankSize" type="number" inputmode="decimal" min="0" step="any"><select id="tankUnit" aria-label="Tank unit"></select></div>
-        </div>
-        <div>
-          <label class="f" for="carrierRate">Carrier rate</label>
-          <div class="inrow"><input id="carrierRate" type="number" inputmode="decimal" min="0" step="any"><select id="carrierUnit" aria-label="Carrier unit"></select></div>
-        </div>
-      </div>
-      <div>
-        <label class="f" for="area">Field size</label>
-        <div class="inrow"><input id="area" type="number" inputmode="decimal" min="0" step="any"><select id="areaUnit" aria-label="Area unit"></select></div>
-      </div>
-      <div>
-        <label class="f" for="carrierType">Carrier</label>
-        <select id="carrierType" aria-label="Carrier type"></select>
-      </div>
+    <label class="f" for="mixJobsSel">Saved Mixes</label>
+    <div class="row">
+      <select id="mixJobsSel" aria-label="Choose a saved mix"><option value="">Choose a saved mix…</option></select>
+      <button class="btn alt" id="btnClearMix" type="button" title="Clear the current draft and start a new mix">New mix</button>
     </div>
-    <div id="fertBox"></div>
-  </details>
-
-  <div class="card" id="tankStats" aria-live="polite"></div>
-
-  <div class="card">
-    <h2 style="justify-content:space-between">Products <span class="badge" id="prodCount">0</span></h2>
-    <div id="prodList"></div>
-    <div class="grid g2">
-      <button class="btn" id="btnAddProd">＋ Add product</button>
-      <button class="btn alt" id="quickAdd" aria-haspopup="dialog">⚡ Quick add…</button>
-    </div>
-    <p class="tiny muted" style="margin:10px 0 0">Quick add lists My products (<span class="tag epa">EPA</span>, <span class="tag wsda">WSDA</span>, and <span class="tag cu">Custom</span>) and generic adjuvants. Use <b>Products</b> (or Add product above) to find EPA or WSDA products with their label details. Always use the rate on the product label.</p>
+    <p class="tiny muted" id="mixJobsHint" style="margin:8px 0 0" hidden></p>
   </div>
-
-  <div class="card" id="carrierCard" aria-live="polite"></div>
-  <div class="card" id="costCard"></div>
-  <button class="btn alt block" id="btnLogMix" style="margin-bottom:12px">📝 Log this spray</button>
+  <div class="seg" id="mixMode" role="group" aria-label="Mix workflow">
+    <button type="button" id="mixEditTab" data-mix-mode="edit" aria-controls="mixEditPane" aria-pressed="true" class="on">Edit mix</button>
+    <button type="button" id="mixLoadTab" data-mix-mode="load" aria-controls="mixLoadPane" aria-pressed="false">Tank amounts</button>
+  </div>
+  <div id="mixEditPane">
+    <details class="card setup" id="mixSetup" open><summary>1. Sprayer &amp; field</summary>
+      <div class="grid">
+        <div><label class="f" for="mixName">Mix name</label><input id="mixName" type="text" placeholder="e.g. Soybean post, north 85" autocomplete="off"></div>
+        <div class="grid g2">
+          <div><label class="f" for="tankSize">Tank size</label><div class="inrow"><input id="tankSize" type="number" inputmode="decimal" min="0" step="any"><select id="tankUnit" aria-label="Tank unit"></select></div></div>
+          <div><label class="f" for="carrierRate">Carrier rate</label><div class="inrow"><input id="carrierRate" type="number" inputmode="decimal" min="0" step="any"><select id="carrierUnit" aria-label="Carrier unit"></select></div></div>
+        </div>
+        <div><label class="f" for="area">Field size</label><div class="inrow"><input id="area" type="number" inputmode="decimal" min="0" step="any"><select id="areaUnit" aria-label="Area unit"></select></div></div>
+        <div><label class="f" for="carrierType">Carrier</label><select id="carrierType" aria-label="Carrier type"></select></div>
+      </div>
+      <div id="fertBox"></div>
+    </details>
+    <div class="card" id="mixProductsCard">
+      <h2>2. Products &amp; label rates</h2>
+      <div id="prodList"></div><span id="prodCount" hidden>0</span>
+      <div class="grid g2" style="margin-top:12px">
+        <button class="btn" id="quickAdd" aria-haspopup="dialog">Add product…</button>
+        <button class="btn alt" id="btnAddProd">Enter manually</button>
+      </div>
+      <p class="tiny muted" style="margin:8px 0 0">Choose saved products or search EPA / WSDA in Add product. Always enter the label rate.</p>
+      <button class="btn block" id="mixNext" type="button">Use tank amounts →</button>
+      <p class="small muted" id="mixReadyHint" style="margin:8px 0 0"></p>
+    </div>
+  </div>
+  <div id="mixLoadPane" hidden>
+    <div class="card" id="loadingTank" aria-live="polite"></div>
+    <details class="card" id="mixMore"><summary>Cost &amp; planning notes</summary><div id="costCard"></div><div id="mixPlanNotes" class="small muted"></div></details>
+    <button class="btn alt block" id="btnLogMix" style="margin-bottom:12px">📝 Log this spray</button>
+  </div>
 </section>
 
 <section class="view" id="v-tools" role="tabpanel">
@@ -1148,7 +1152,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
    3. Storage (localStorage)
    4. UI: Mix, Order/Jar test, Lookup (EPA), Saved, Print
    ===================================================================== */
-const APP_VERSION = "2.14.0";
+const APP_VERSION = "2.15.1";
 const TM = window.TM = {};
 
 /* ---------- 1. Constants ---------- */
@@ -1421,7 +1425,8 @@ function loadMixIntoForm(){
   $("mixName").value = S.mix.name||"";
   $("tankSize").value = S.mix.tank.v; $("carrierRate").value = S.mix.carrier.v; $("area").value = S.mix.area.v;
   fillUnitSelects(); renderFertBox(); renderProducts(); renderAll();
-  if ($("mixSetup")) $("mixSetup").open = !S.mix.products.length || !TM.calc(S.mix).ok;
+  loadingChoice='perFull';
+  setMixMode((S.mix.id || S.mix.products.length) && TM.calc(S.mix).ok && !mixDraftDirty() ? 'load' : 'edit');
 }
 function renderHeader(){
   $("hdrName").textContent = S.mix.name || "Untitled mix";
@@ -1429,19 +1434,7 @@ function renderHeader(){
   const n = S.mix.products.length;
   $("hdrSub").textContent = (saved ? (mixDraftDirty() ? "Unsaved changes" : "Saved mix") : "Not saved")+" · "+n+" product"+(n===1?"":"s");
 }
-function renderStats(R){
-  const m = isMetric(), el = $("tankStats");
-  if (!R.ok){ el.innerHTML = `<h2>Tank plan</h2><p class="muted" style="margin:0">Enter tank size, carrier rate, and field size.</p>`; return; }
-  const loads = R.fullTanks + (R.partialGal>0?1:0);
-  el.innerHTML = `<h2>Tank plan</h2>
-  <div class="stats">
-    <div class="stat"><div class="k">Area per tank</div><div class="v">${showArea(R.acresPerTank,S.mix,m)}</div><div class="s">per full ${showVolGal(R.tank,m)} tank</div></div>
-    <div class="stat"><div class="k">Full tanks</div><div class="v">${R.fullTanks}</div><div class="s">${loads} load${loads===1?"":"s"} total · ${fmt(R.tanks,2)} tanks</div></div>
-    <div class="stat"><div class="k">Partial last tank</div><div class="v">${R.partialGal>0?showVolGal(R.partialGal,m):"None"}</div><div class="s">${R.partialGal>0?"covers "+showArea(R.partialAcres,S.mix,m):"field ends on a full tank"}</div></div>
-    <div class="stat"><div class="k">Total spray</div><div class="v">${showVolGal(R.totalGal,m)}</div><div class="s">${showArea(R.acres,S.mix,m)} @ ${showCarrier(R,S.mix,m)}</div></div>
-  </div>
-  <div class="small${R.carrierAmt.over?" warn":""}" id="tankCarrierLine" style="margin-top:8px">${R.carrierAmt.over?"⚠ Products exceed the tank volume; no room for carrier.":`Carrier to add: <b>${showVol1(R.carrierAmt.perFull,m)}</b> per full tank${R.partialGal>0?` · <b>${showVol1(R.carrierAmt.perPartial,m)}</b> partial`:""} · ${showVol1(R.carrierAmt.total,m)} total <span class="muted">(details under Products)</span>`}</div>`;
-}
+const productExtrasOpen=new Set();
 function productCard(p, i){
   const formOpts = FORMS.map(([k,l])=>`<option value="${k}"${k===p.form?" selected":""}>${esc(l)}</option>`).join("");
   const isPct = p.unit==="% v/v";
@@ -1460,31 +1453,26 @@ function productCard(p, i){
         <div class="inrow"><input data-f="rate" type="number" inputmode="decimal" step="any" min="0" value="${esc(p.rate)}" placeholder="label rate" aria-label="Rate">
         <select data-f="unit" aria-label="Rate unit">${opts(RATE_UNITS,p.unit,u=>UNIT_LABEL[u]||u)}</select>
         <select data-f="basis" aria-label="Rate basis" ${isPct?"disabled":""}>${isPct?`<option>of spray</option>`:Object.entries(BASES).map(([k,l])=>`<option value="${k}"${k===p.basis?" selected":""}>${k}</option>`).join("")}</select></div></div>
-      <div class="grid g2">
-        <div><label class="f">Formulation / type</label><select data-f="form" aria-label="Formulation">${formOpts}</select></div>
-        <div><label class="f">Price (optional)</label>
+      <div><label class="f">Mixing type / formulation</label><select data-f="form" aria-label="Formulation">${formOpts}</select></div>
+    </div>
+    <details class="productExtras"${productExtrasOpen.has(p.id)?' open':''}><summary>Price &amp; density (optional)</summary>
+        <div><label class="f">Price</label>
           <div class="inrow"><input data-f="price" type="number" inputmode="decimal" step="any" min="0" value="${esc(p.price)}" placeholder="$" aria-label="Price">
           <select data-f="priceUnit" aria-label="Price unit">${opts(PRICE_UNITS,p.priceUnit,u=>"/"+u)}</select></div></div>
-      </div>
-    </div>
     ${(p.price && kindOf(p.priceUnit)!==kindOf(p.unit)) || num(p.density)>0 || kindOf(p.unit)==="wt" ? `<div style="margin-top:8px"><label class="f">${kindOf(p.unit)==="wt"?"Bulk density":"Density"} (lb/gal) <span class="tiny">${kindOf(p.unit)==="wt"?"optional: lets the carrier amount subtract this dry product; also converts dry ↔ liquid for pricing":"converts liquid ↔ dry for pricing; from the label or SDS"}</span></label><input data-f="density" type="number" inputmode="decimal" step="any" min="0" value="${esc(p.density||"")}" placeholder="${kindOf(p.unit)==="wt"?"e.g. 8.3":"e.g. 9.5"}" aria-label="Density"></div>`:""}
-    <div class="out" id="out-${p.id}"></div>
     <div class="costline" id="cost-${p.id}"></div>
+    </details>
   </div>`;
 }
 function renderProducts(){
-  $("prodList").innerHTML = S.mix.products.length ? S.mix.products.map(productCard).join("") : `<div class="empty">No products yet. Add one below or from <b>Lookup</b>.</div>`;
+  $('prodList').querySelectorAll('.prod').forEach(card=>{if(card.querySelector('.productExtras')?.open)productExtrasOpen.add(card.dataset.id);else productExtrasOpen.delete(card.dataset.id);});
+  $("prodList").innerHTML = S.mix.products.length ? S.mix.products.map(productCard).join("") : `<div class="empty">Add a product below, or use carrier-only amounts.</div>`;
   $("prodCount").textContent = S.mix.products.length;
 }
-function renderOutputs(R){
-  const m = isMetric();
-  R.products.forEach((o,i)=>{
-    const p = S.mix.products[i], el = $("out-"+o.id); if(!el) return;
-    const cell = (k, base) => { const a = showAmt(base,o.kind,m,p.unit); return `<div><div class="k">${k}</div><div class="v">${a.main}</div><div class="s">${a.sub||"&nbsp;"}</div></div>`; };
-    const c = $("cost-"+o.id);
-    if (!R.ok || !(num(p.rate)>0)) { el.innerHTML = `<div style="grid-column:1/-1" class="muted small">${!R.ok?"Fill in tank, carrier, and field size.":"Enter the label rate to see amounts."}</div>`; c.innerHTML=""; return; }
-    el.innerHTML = cell("Per full tank", o.perFull) + (R.partialGal>0 ? cell("Partial tank", o.perPartial) : `<div><div class="k">Partial tank</div><div class="v">—</div><div class="s">none</div></div>`) + cell("Total job", o.total);
-    c.innerHTML = o.costErr ? `<span class="warn">⚠ ${esc(o.costErr)}</span>` : o.cpa!=null ? `Cost: <b>${money(m?o.cpa*AC_HA:o.cpa)}/${m?"ha":"A"}</b> · job <b>${money(o.cost)}</b>${o.viaDensity?' <span class="tiny muted">(via density '+esc(p.density)+' lb/gal)</span>':""}` : "";
+function renderProductCosts(R){
+  const m=isMetric();R.products.forEach((o,i)=>{
+    const p=S.mix.products[i],c=$('cost-'+o.id);if(!c)return;
+    c.innerHTML=o.costErr?`<span class="warn">⚠ ${esc(o.costErr)}</span>`:o.cpa!=null?`Cost: <b>${money(m?o.cpa*AC_HA:o.cpa)}/${m?'ha':'A'}</b> · job <b>${money(o.cost)}</b>${o.viaDensity?' <span class="tiny muted">(density conversion)</span>':''}`:'';
   });
 }
 /* ---------- v2.6 carrier to add per load ---------- */
@@ -1504,22 +1492,6 @@ function carrierNotes(R, m){
   return L;
 }
 TM.carrierNotes = R => carrierNotes(R, isMetric());
-function renderCarrier(R){
-  const m = isMetric(), el = $("carrierCard"); if (!el) return;
-  if (!R.ok){ el.innerHTML = `<h2>Carrier to add</h2><p class="muted small" style="margin:0">Fill in tank, carrier, and field size.</p>`; return; }
-  const C = R.carrierAmt, two = C.parts.length>1;
-  const cell = (k, g, s) => `<div><div class="k">${k}</div><div class="v">${g==null?"—":showVol1(g,m)}</div><div class="s">${s}</div></div>`;
-  const loads = R.fullTanks + (R.partialGal>0?1:0);
-  const head = `<div class="out" id="carrierOut">
-      ${cell("Per full tank", C.perFull, "to make "+showVol1(R.tank,m))}
-      ${R.partialGal>0 ? cell("Partial tank", C.perPartial, "to make "+showVol1(R.partialGal,m)) : cell("Partial tank", null, "none")}
-      ${cell("Total job", C.total, loads+" load"+(loads===1?"":"s"))}</div>`;
-  const parts = two ? `<table class="ctab" id="carrierParts"><tr><th></th><th>Full tank</th><th>Partial</th><th>Total</th></tr>${(()=>{ const f = cParts(R,"perFull",m), pp = cParts(R,"perPartial",m), t = cParts(R,"total",m);
-      return C.parts.map((x,i)=>`<tr><td>${esc(x.label)}</td><td><b>${showVol1(f[i],m)}</b></td><td>${R.partialGal>0?showVol1(pp[i],m):"—"}</td><td>${showVol1(t[i],m)}</td></tr>`).join(""); })()}</table>` : "";
-  const notes = carrierNotes(R, m);
-  el.innerHTML = `<h2>Carrier to add <span class="badge">${esc(two ? C.parts.map(x=>x.label.replace(/ \(.*\)$/,"")).join(" + ") : C.parts.length ? C.parts[0].label : (R.fert?CARRIERS[R.fert.type].label:"Water"))}</span></h2>` + head + parts +
-    `<div class="resbox small" id="carrierNote">${notes.map(x=>`<div>${x}</div>`).join("")||"No product volume to subtract."}<div class="tiny muted" style="margin-top:4px">Carrier = load volume − product volume. Rounded to 0.1 ${m?"L":"gal"}.</div></div>`;
-}
 function renderCost(R){
   const m = isMetric(), el = $("costCard");
   const any = R.products.some(o=>o.cpa!=null) || (R.fert && R.fert.cpa!=null);
@@ -1586,7 +1558,7 @@ function renderJar(R){
 }
 function renderAll(){
   const R = TM.calc(S.mix);
-  renderHeader(); renderLoadingTank(R); renderStats(R); renderFertOut(R); renderOutputs(R); renderCarrier(R); renderCost(R); renderOrder(R); renderJar(R);
+  renderHeader(); renderLoadingTank(R); renderMixWorkflow(R); renderFertOut(R); renderProductCosts(R); renderCost(R); renderOrder(R); renderJar(R);
   return R;
 }
 
@@ -1640,13 +1612,15 @@ function bindMixInputs(){
   $("btnAddProd").onclick = ()=>addProduct({});
   $("carrierType").onchange = e=>setCarrierType(e.target.value);
   $("quickAdd").onclick = ()=>openQuickAdd();
+  document.querySelectorAll('[data-mix-mode]').forEach(b=>b.onclick=()=>setMixMode(b.dataset.mixMode));
+  $('mixNext').onclick=()=>setMixMode('load',true);
 }
 function syncPriceUnit(p){ const k = kindOf(p.unit); if (kindOf(p.priceUnit)!==k) p.priceUnit = k==="wt" ? "lb" : "gal"; }
 function addProduct(init){
   const p = Object.assign({ name:"", epa:"", rate:"", unit:"fl oz", basis:"", form:"OTHER", price:"", priceUnit:"gal" }, init, {id:uid()});
   if (!p.basis && p.unit!=="% v/v") p.basis = defaultBasis();
   syncPriceUnit(p);
-  S.mix.products.push(p); saveCurrent(); renderProducts(); renderAll();
+  S.mix.products.push(p); saveCurrent(); renderProducts(); renderAll(); setMixMode("edit");
   showTab("mix");
   setTimeout(()=>{ const c = document.querySelector(`.prod[data-id="${p.id}"]`); if(c){ c.scrollIntoView({behavior:"smooth",block:"center"}); const f = c.querySelector(p.name?'[data-f="rate"]':'[data-f="name"]'); f && f.focus({preventScroll:true}); } }, 60);
   toast((p.name||"Product")+" added");
@@ -1717,6 +1691,7 @@ function showTab(v){
     document.querySelectorAll(".view").forEach(s=>s.classList.toggle("on", s.id==="v-"+v));
   }
   const nv = TAB_OF[v] || v;
+  $('btnSave').hidden=nv!=='mix';$('btnPrint').hidden=nv!=='mix';
   document.querySelectorAll("nav.tabs button").forEach(b=>b.setAttribute("aria-selected", b.dataset.v===nv));
   if (v==="set"){ const a=$("setSavedN"); if (a) a.textContent = S.mixes.length; }
   window.scrollTo(0,0);
@@ -1748,6 +1723,8 @@ function mixDraftDirty(){
   }
   if ((m.products||[]).length) return true;
   if ((m.name||"").trim()) return true;
+  const defaults=blankMix();
+  if(['tank','carrier','area'].some(k=>String(m[k]?.v)!==String(defaults[k].v) || m[k]?.u!==defaults[k].u))return true;
   const f = m.fert; if (f && ((f.type&&f.type!=="water") || num(f.n)||num(f.p)||num(f.k)||num(f.density)||num(f.price))) return true;
   return false;
 }
@@ -1773,7 +1750,7 @@ function updateMixJobsCard(){
   if (!n){
     sel.disabled = true;
     sel.innerHTML = `<option value="">No saved mixes</option>`;
-    if (hint) hint.innerHTML = `No saved mixes yet. Tap <b>Save</b> at the top to keep this job, then open it here anytime. Also under Settings › Saved.`;
+    if (hint){hint.hidden=false;hint.textContent='Start below, then Save mix to keep it here.';}
     return;
   }
   sel.disabled = false;
@@ -1782,12 +1759,7 @@ function updateMixJobsCard(){
     return `<option value="${esc(r.id)}">${esc(label)}</option>`;
   }).join("");
   sel.value = "";
-  if (hint){
-    const open = S.mix && S.mix.id && S.mixes.find(x=>x.id===S.mix.id);
-    hint.textContent = open
-      ? ("Open now: "+open.name+" · "+mixJobsMeta(open)+". Pick another above, or manage them in Settings › Saved.")
-      : (n+" saved mix"+(n===1?"":"es")+". Also under Settings › Saved.");
-  }
+  if (hint){hint.hidden=true;hint.textContent='';}
 }
 
 function onMixJobsSelect(){
@@ -1823,7 +1795,7 @@ function bindSaved(){
     $("smDup").onclick = ()=>{ const c = clone(r); c.id=uid(); c.name=r.name+" (copy)"; c.mix.id=c.id; c.mix.name=c.name; c.updated=Date.now(); S.mixes.unshift(c); persist("mixes"); renderSaved(); closeDlg(); toast("Duplicated"); };
     $("smDel").onclick = ()=>{ if(!confirm("Delete “"+r.name+"”?")) return; S.mixes = S.mixes.filter(x=>x!==r); persist("mixes"); if (S.mix.id===r.id){ S.mix.id=null; saveCurrent(); } renderSaved(); renderAll(); closeDlg(); toast("Deleted"); };
   });
-  $("btnClearMix").onclick = clearMix; $("btnUndoClear").onclick = undoClearMix;
+  $("btnClearMix").onclick = ()=>{if(!mixDraftDirty() || confirm('Start a new mix? Unsaved changes will be cleared.'))clearMix();}; $("btnUndoClear").onclick = undoClearMix;
   $("btnNewMix").onclick = ()=>{ S.mix = blankMix(); saveCurrent(); loadMixIntoForm(); renderSaved(); showTab("mix"); toast("New mix"); };
   $("btnSaveAs").onclick = ()=>saveMix(true);
   $("btnSave").onclick = ()=>saveMix(false);
@@ -1915,15 +1887,11 @@ function setCarrierType(t){
 function renderFertOut(R){
   const el = $("fertOut"); if (!el) return;
   const fe = R.fert; if (!fe || !R.ok){ el.innerHTML = `<p class="muted small">Fill in tank, carrier, and field size.</p>`; return; }
-  const m = isMetric(), lb = x => { const v = m ? x*0.45359237 : x; return fmt(v, v>=100?0:1)+(m?" kg":" lb"); }, ga = x => showVolGal(x,m);
+  const m = isMetric();
   const perA = x => m ? fmt(x*0.45359237*AC_HA)+" kg/ha" : fmt(x)+" lb/A";
   const nut = [["N",fe.nA],["P₂O₅",fe.pA],["K₂O",fe.kA]].filter(x=>x[1]>0);
-  el.innerHTML = `<div class="out" style="margin-top:10px">
-      <div><div class="k">Per full tank</div><div class="v">${ga(fe.perFull)}</div><div class="s">${fe.density>0?lb(fe.lbFull):""}${fe.waterFull>0.01?(fe.density>0?" · ":"")+"+ "+ga(fe.waterFull)+" water":""}</div></div>
-      <div><div class="k">Partial tank</div><div class="v">${R.partialGal>0?ga(fe.perPartial):"—"}</div><div class="s">${R.partialGal>0?(fe.density>0?lb(fe.perPartial*fe.density):"")+(fe.waterPartial>0.01?(fe.density>0?" · ":"")+"+ "+ga(fe.waterPartial)+" water":""):"none"}</div></div>
-      <div><div class="k">Total job</div><div class="v">${ga(fe.total)}</div><div class="s">${fe.density>0?lb(fe.lbTotal):"&nbsp;"}</div></div></div>
-    <div class="resbox small">${fe.err?`<span class="warn">⚠ ${esc(fe.err)}</span>`:`Fertilizer applied: <b>${perA(fe.lbA)}</b> product (${m?fmt(fe.galA*GAL_L*AC_HA,0)+" L/ha":fmt(fe.galA,2)+" gal/A"})${nut.length?" → "+nut.map(([k,v])=>`<b>${perA(v)} ${k}</b>`).join(" · "):" (enter the analysis for nutrients)"}`}
-      ${R.prodVolA>0?`<div class="tiny muted" style="margin-top:4px">Products take ${m?fmt(R.prodVolA*GAL_L*AC_HA,1)+" L/ha":fmt(R.prodVolA,2)+" gal/A"} of the ${showCarrier(R,S.mix,m)}, so the carrier fills the rest (see Carrier to add).</div>`:""}
+  el.innerHTML = `    <div class="resbox small">${fe.err?`<span class="warn">⚠ ${esc(fe.err)}</span>`:`Fertilizer applied: <b>${perA(fe.lbA)}</b> product (${m?fmt(fe.galA*GAL_L*AC_HA,0)+" L/ha":fmt(fe.galA,2)+" gal/A"})${nut.length?" → "+nut.map(([k,v])=>`<b>${perA(v)} ${k}</b>`).join(" · "):" (enter the analysis for nutrients)"}`}
+      ${R.prodVolA>0?`<div class="tiny muted" style="margin-top:4px">Products take ${m?fmt(R.prodVolA*GAL_L*AC_HA,1)+" L/ha":fmt(R.prodVolA,2)+" gal/A"} of the ${showCarrier(R,S.mix,m)}, so the carrier fills the rest (see Tank amounts).</div>`:""}
       ${fe.cpa!=null?`<div style="margin-top:4px">Fertilizer cost: <b>${money(m?fe.cpa*AC_HA:fe.cpa)}/${m?"ha":"A"}</b> · job <b>${money(fe.cost)}</b></div>`:num(S.mix.fert.price)>0?`<div class="warn" style="margin-top:4px">Enter the density to price per ${esc(S.mix.fert.priceUnit)}.</div>`:""}</div>`;
 }
 
@@ -4433,26 +4401,46 @@ function weatherUnknown(d, now=Date.now()){
   return !Number.isFinite(ts) || now-ts>limit || ts-now>5*60000;
 }
 TM.weatherUnknown=weatherUnknown;
-let loadingChoice='perFull';
+let mixMode='edit', loadingChoice='perFull';
+function mixLoadReady(R){return R.ok && (R.fullTanks>0||R.partialGal>0);}
+function setMixMode(mode, scroll=false){
+  const R=TM.calc(S.mix);mixMode=mode==='load'&&mixLoadReady(R)?'load':'edit';
+  $('mixSetup').open=mixMode==='edit';renderMixWorkflow(R);renderLoadingTank(R);
+  if(scroll){$('mixMode').style.scrollMarginTop=(document.querySelector('header.top').getBoundingClientRect().height+$('fieldStatus').getBoundingClientRect().height+8)+'px';$('mixMode').scrollIntoView({behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth',block:'start'});$(mixMode==='load'?'mixLoadTab':'mixEditTab').focus({preventScroll:true});}
+}
+function renderMixWorkflow(R){
+  const ready=mixLoadReady(R);
+  if(!ready&&mixMode==='load'){mixMode='edit';$('mixSetup').open=true;}
+  $('mixEditPane').hidden=mixMode!=='edit';$('mixLoadPane').hidden=mixMode!=='load';
+  document.querySelectorAll('[data-mix-mode]').forEach(b=>{const on=b.dataset.mixMode===mixMode;b.classList.toggle('on',on);b.setAttribute('aria-pressed',String(on));});
+  $('mixLoadTab').disabled=!ready;$('mixNext').disabled=!ready;
+  $('mixReadyHint').hidden=ready;$('mixReadyHint').textContent=!R.ok?'Enter tank size, carrier rate and field size first.':'Increase the field size to calculate a load.';
+  $('mixPlanNotes').textContent='Amounts use the entered label rates. Carrier = spray volume minus product volume, rounded to 0.1 '+(isMetric()?'L':'gal')+'. For amounts to purchase, choose Whole job totals above.';
+}
+TM.setMixMode=setMixMode;TM.mixMode=()=>mixMode;
 function renderLoadingTank(R){
-  const el=$('loadingTank'); if(!el)return;
-  if(!R.ok || !S.mix.products.length){el.hidden=true;return;}
+  const el=$('loadingTank');if(!el)return;
+  if(!mixLoadReady(R)){el.hidden=true;return;}
   el.hidden=false;
-  if(R.fullTanks===0 && R.partialGal>0)loadingChoice='perPartial';
+  if(loadingChoice==='perFull' && R.fullTanks===0)loadingChoice='perPartial';
   if(loadingChoice==='perPartial' && !R.partialGal)loadingChoice='perFull';
-  const partial=loadingChoice==='perPartial', metric=isMetric(), key=loadingChoice, vol=partial?R.partialGal:R.tank;
-  const stepItems=buildOrder(R).flatMap(s=>s.items);
-  el.innerHTML=`<h2>Loading this tank</h2><label class="f" for="loadTankChoice">Load size</label><select id="loadTankChoice" class="loadselect">${R.fullTanks>0?`<option value="perFull"${!partial?' selected':''}>Full tank · ${showVol1(R.tank,metric)}</option>`:''}${R.partialGal>0?`<option value="perPartial"${partial?' selected':''}>Last partial tank · ${showVol1(R.partialGal,metric)}</option>`:''}</select>
-    <div class="small muted">${esc(S.mix.name||'Current mix')} · ${partial?'Last partial load':'Per full load'}</div>
-    ${R.carrierAmt.over?'<p class="warn">Products exceed tank capacity. Check rates before loading.</p>':''}
-    <div class="kvline"><b>Carrier to add</b><span class="loadamount">${showVol1(R.carrierAmt[key],metric)}</span></div>
-    ${R.carrierAmt.parts.length>1?R.carrierAmt.parts.map((p,i)=>`<div class="kvline"><span>${esc(p.label)}</span><b>${showVol1(cParts(R,key,metric)[i],metric)}</b></div>`).join(''):''}
-    ${stepItems.map(({p,o})=>`<div class="kvline"><span>${esc(p.name||'Unnamed product')}</span><span class="loadamount">${num(p.rate)>0?showAmt(o[key],o.kind,metric,p.unit).main:'Enter label rate'}</span></div>`).join('')}
-    <p class="tiny muted" style="margin-bottom:0">Amounts above are in the standard mixing sequence. Start with about half the carrier, agitate, then add products and top off to <b>${showVol1(vol,metric)}</b>. Follow each label’s order instead if different.</p>
-    ${carrierNotes(R,metric).map(t=>`<div class="tiny">${t}</div>`).join('')}
-    <button class="btn alt sm" id="loadEdit" type="button" style="margin-top:8px">Edit setup / rates</button>`;
+  const key=loadingChoice,total=key==='total',partial=key==='perPartial',m=isMetric();
+  const vol=total?R.totalGal:partial?R.partialGal:R.tank,area=total?R.acres:partial?R.partialAcres:R.acresPerTank;
+  const C=R.carrierAmt,missing=S.mix.products.some(p=>!(num(p.rate)>0));
+  const plan=[R.fullTanks?R.fullTanks+' full tank'+(R.fullTanks===1?'':'s'):'',R.partialGal?'1 partial load':''].filter(Boolean).join(' + ');
+  const overBy=(total?R.prodVolA*R.acres:partial?C.prodPartial:C.prodFull)-vol;
+  const warnings=[!S.mix.products.length?'No products added. These are carrier-only amounts.':'',missing?'One or more label rates are missing. Enter them in Edit mix before loading.':'',C.over?'Do not load. Products exceed the tank volume by '+showVol1(Math.max(0,overBy),m)+(total?' across the job.':' for this load.')+' Check rates before loading; there is no room for carrier.':'',C.dryUnknown.length?'Dry products not subtracted: '+C.dryUnknown.join(', ')+' (no density entered; treated as negligible).':'',C.dryEst.length?'Dry product volume is estimated from entered bulk density: '+C.dryEst.join(', ')+'.':'',R.fert?'Fertilizer carrier: check every label for compatibility and crop-burn restrictions; jar-test this exact carrier.':'',R.fert?.err||''].filter(Boolean);
+  const parts=cParts(R,key,m);
+  const carrier=`<div id="carrierCard"><div class="kvline"><b>Carrier to add</b><span class="loadamount">${showVol1(C[key],m)}</span></div>${C.parts.length>1?C.parts.map((p,i)=>`<div class="kvline"><span>${esc(p.label)}</span><b>${showVol1(parts[i],m)}</b></div>`).join(''):''}${R.fert?.density>0?`<div class="tiny muted">Fertilizer weight: ${fmt((total?R.fert.lbTotal:partial?R.fert.perPartial*R.fert.density:R.fert.lbFull)*(m ? 0.45359237 : 1),1)} ${m?'kg':'lb'}</div>`:''}</div>`;
+  const product=({p,o})=>`<div class="load-product" data-load-product="${esc(p.id)}"><span>${esc(p.name||'Unnamed product')}${registrationText(p)?`<small class="tiny muted" style="display:block">${esc(registrationText(p))}</small>`:''}</span><b class="loadamount">${num(p.rate)>0?showAmt(o[key],o.kind,m,p.unit).main:'Enter label rate'}</b></div>`;
+  const quantities=S.mix.products.map((p,i)=>product({p,o:R.products[i]})).join('');
+  el.innerHTML=`<label class="f" for="loadTankChoice">Show amounts for</label><select id="loadTankChoice" class="loadselect">${R.fullTanks?`<option value="perFull"${key==='perFull'?' selected':''}>Full tank</option>`:''}${R.partialGal?`<option value="perPartial"${partial?' selected':''}>Last partial tank</option>`:''}<option value="total"${total?' selected':''}>Whole job totals — not one tank</option></select>
+    <div id="tankStats" class="small muted">${esc(plan)} · ${showArea(area,S.mix,m)} ${total?'whole job':partial?'last partial load':'per full tank'}</div>
+    ${warnings.map(t=>`<p class="warn small load-warning" role="alert">⚠ ${esc(t)}</p>`).join('')}
+    ${total?`<div class="note"><b>Planning totals — not a single tank.</b> Total spray: ${showVol1(vol,m)}. Choose Full tank${R.partialGal?' or Last partial tank':''} for per-load quantities.</div>`:'<div class="note small"><b>Label first.</b> Always follow the product labels.</div>'}
+    ${total?'':`<p id="loadVolume" class="small muted">Spray volume: <b>${showVol1(vol,m)}</b></p>`}
+    ${carrier}<div id="loadProducts">${quantities}</div>`;
   $('loadTankChoice').onchange=e=>{loadingChoice=e.target.value;renderLoadingTank(TM.calc(S.mix));};
-  $('loadEdit').onclick=()=>{$('mixSetup').open=true;$('mixSetup').scrollIntoView({behavior:'smooth'});};
 }
 function registrationText(p){
   const wa=p.waReg || (isWsdaLib(p)?p.epa:'');
