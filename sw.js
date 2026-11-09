@@ -1,6 +1,6 @@
-// SprayTrue service worker v2.15.1. Pages: network first (so updates show up), cached copy when offline.
+// SprayTrue service worker v2.15.2. Pages: network first (so updates show up), cached copy when offline.
 // Other app files: cache first. Cross-origin requests (EPA, Open-Meteo, map tiles) and the /preview/ build are never touched.
-const CACHE = "spraytrue-2.15.1-d05952d5";
+const CACHE = "spraytrue-2.15.2-8ea1373f";
 const SHELL = ["./", "./index.html", "./manifest.webmanifest", "./wsda-products.json", "./icons/icon-192.png", "./icons/icon-512.png", "./icons/maskable-512.png"];
 const PREVIEW = new URL("./preview/", self.registration.scope).pathname;
 self.addEventListener("install", e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL.map(u => new Request(u, {cache: "reload"})))).then(() => self.skipWaiting())); });
