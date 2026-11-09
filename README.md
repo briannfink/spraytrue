@@ -1,6 +1,15 @@
-# SprayTrue (v2.15.1 — PREVIEW ONLY)
+# SprayTrue (v2.15.2 — PREVIEW ONLY)
 
-## v2.15.1 — quantities only in Tank amounts (preview only)
+## v2.15.2 — jug-friendly Tank product quantities (preview only)
+
+- Preview: https://briannfink.github.io/spraytrue/preview/ . Build/cache identity: `spraytrue-2.15.2-8ea1373f` (preview deliberately has no service worker). **Live stays v2.15.1**, cache `spraytrue-2.15.1-d05952d5`. Source backed up first to `/tmp/tankmix-app-v2151`.
+- Liquid **product** quantities that would show gallons in Tank amounts now use whole US gallons plus remaining US fluid ounces: `2.5 gal → 2 gal 64 fl oz`, `1.25 gal → 1 gal 32 fl oz`, `21.25 gal → 21 gal 32 fl oz`. Whole gallons omit zero ounces. Existing subgallon ounce readouts are unchanged (e.g. `0.625 gal → 80 fl oz`).
+- The gallon/ounce split rounds only the display to 0.1 fl oz, with carry at 128 fl oz (e.g. `1 gal + 127.95 fl oz → 2 gal`), using the original unrounded calculation rather than the old rounded decimal-gallon string. Gallon and ounce groups can wrap separately on narrow phones without splitting their units.
+- Same formatter for full tank, last partial and whole-job product quantities. Dry products, non-gallon/metric readouts, carrier/water/fertilizer carrier volumes, stored rates, actual calculations, Tools mixing order, logs, print/PDF and sync are unchanged. No dependencies, data or Supabase changes.
+- `tools/test22.js`: **69** new unit/assembled-DOM assertions covering exact/subgallon/carry/precision boundaries, all load scopes, preserved dry/metric/carrier values, unchanged stored calculations and original decimal-gallon print/PDF output. Existing `test20.js` **109**, `test21.js` **32**, and `test19.js` **91** assertions also pass; **11** offline WSDA fixture tests pass. Build and JS syntax checks pass.
+- No browser automation or screenshots produced. Native phone layout (including two-part quantity wrapping) still needs actual browser/iPhone validation.
+
+## v2.15.1 — quantities only in Tank amounts (approved live)
 
 - Preview: https://briannfink.github.io/spraytrue/preview/ . Build ID/cache: `spraytrue-2.15.1-d05952d5` (preview has no service worker). Live remains **v2.14.0**, cache `spraytrue-2.14.0-e7b65abe`. Backup: `/tmp/tankmix-app-v2150`.
 - Brian requested no mixing order in Tank amounts. Removed its numbered/grouped steps, fill/agitation/top-off instructions and duplicated mixing-guide control. Tank amounts now shows a plain product list in mix-list order, with full/partial/job quantities, carrier components, selected spray volume and WA identity. Mixing order and jar-test functionality remain under **Tools › Order**, unchanged; print/PDF and calculation code are untouched.
