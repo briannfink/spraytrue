@@ -1,6 +1,14 @@
-# SprayTrue (v2.15.0 — PREVIEW ONLY)
+# SprayTrue (v2.15.1 — PREVIEW ONLY)
 
-## v2.15.0 — focused Mix cleanup (preview only)
+## v2.15.1 — quantities only in Tank amounts (preview only)
+
+- Preview: https://briannfink.github.io/spraytrue/preview/ . Build ID/cache: `spraytrue-2.15.1-d05952d5` (preview has no service worker). Live remains **v2.14.0**, cache `spraytrue-2.14.0-e7b65abe`. Backup: `/tmp/tankmix-app-v2150`.
+- Brian requested no mixing order in Tank amounts. Removed its numbered/grouped steps, fill/agitation/top-off instructions and duplicated mixing-guide control. Tank amounts now shows a plain product list in mix-list order, with full/partial/job quantities, carrier components, selected spray volume and WA identity. Mixing order and jar-test functionality remain under **Tools › Order**, unchanged; print/PDF and calculation code are untouched.
+- Missing-rate, over-volume, dry-density and fertilizer compatibility/density warnings remain visible, along with the independent label caution or whole-job-not-one-tank warning.
+- Verification: `test21.js` **32** focused assertions; `test20.js` **109** Mix assertions; `test19.js` **91** reliability/sync assertions; **11** offline WSDA fixtures. Build and syntax checks pass. All JavaScript runs use an isolated non-browser DOM, mocked network/auth; no real account data touched.
+- No browser automation or screenshots produced. Actual desktop/iPhone visual validation remains outstanding. Source and preview deployment only; no live or Supabase changes.
+
+## v2.15.0 — initial Mix cleanup (historical preview; superseded by v2.15.1)
 
 - Preview: https://briannfink.github.io/spraytrue/preview/ . Candidate build ID/cache: `spraytrue-2.15.0-e378947c`. Preview deliberately has no manifest or service worker. **Live must remain v2.14.0**, cache `spraytrue-2.14.0-e7b65abe`. Source backed up first to `/tmp/tankmix-app-v2140`.
 - **Before:** saved-job summary, loading summary, setup, product editors with three calculated tiles each, tank-plan tiles and a separate carrier table all appeared in one long stream. Save/Print also appeared on unrelated tabs.

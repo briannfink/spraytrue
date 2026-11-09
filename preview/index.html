@@ -237,9 +237,7 @@ details.setup>summary,#productAdvanced>summary{font-weight:750;cursor:pointer;mi
 #mixSetup .grid{margin-top:10px} #mixNext{margin-top:12px}
 #v-mix .productExtras>summary,#mixMore>summary{cursor:pointer;font-weight:650;min-height:44px;line-height:44px}
 #v-mix .productExtras{margin-top:8px;border-top:1px solid var(--line)}
-#loadingTank .load-step{padding:12px 0;border-top:1px solid var(--line)}
-#loadingTank .load-step h3{margin:0 0 4px} #loadingTank .load-step p{margin:4px 0 8px}
-#loadingTank .load-product{padding:8px 0;display:flex;align-items:center;justify-content:space-between;gap:12px}
+#loadingTank .load-product{border-bottom:1px solid var(--line);padding:8px 0;display:flex;align-items:center;justify-content:space-between;gap:12px}
 #loadingTank .load-product>span:first-child{min-width:0;overflow-wrap:anywhere}
 #loadingTank .loadamount{flex:0 0 auto;font-size:23px;font-weight:850}
 #loadingTank .load-meta{margin:6px 0 10px} #loadingTank .note{margin:10px 0}
@@ -1151,7 +1149,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
    3. Storage (localStorage)
    4. UI: Mix, Order/Jar test, Lookup (EPA), Saved, Print
    ===================================================================== */
-const APP_VERSION = "2.15.0";
+const APP_VERSION = "2.15.1";
 const TM = window.TM = {};
 
 /* ---------- 1. Constants ---------- */
@@ -4414,7 +4412,7 @@ function renderMixWorkflow(R){
   document.querySelectorAll('[data-mix-mode]').forEach(b=>{const on=b.dataset.mixMode===mixMode;b.classList.toggle('on',on);b.setAttribute('aria-pressed',String(on));});
   $('mixLoadTab').disabled=!ready;$('mixNext').disabled=!ready;
   $('mixReadyHint').hidden=ready;$('mixReadyHint').textContent=!R.ok?'Enter tank size, carrier rate and field size first.':'Increase the field size to calculate a load.';
-  $('mixPlanNotes').textContent='Amounts use the entered label rates. Carrier = spray volume minus product volume, rounded to 0.1 '+(isMetric()?'L':'gal')+'. For amounts to purchase, choose Whole job totals above. Detailed mixing guide and jar-test calculator remain in Tools › Order.';
+  $('mixPlanNotes').textContent='Amounts use the entered label rates. Carrier = spray volume minus product volume, rounded to 0.1 '+(isMetric()?'L':'gal')+'. For amounts to purchase, choose Whole job totals above.';
 }
 TM.setMixMode=setMixMode;TM.mixMode=()=>mixMode;
 function renderLoadingTank(R){
@@ -4425,27 +4423,21 @@ function renderLoadingTank(R){
   if(loadingChoice==='perPartial' && !R.partialGal)loadingChoice='perFull';
   const key=loadingChoice,total=key==='total',partial=key==='perPartial',m=isMetric();
   const vol=total?R.totalGal:partial?R.partialGal:R.tank,area=total?R.acres:partial?R.partialAcres:R.acresPerTank;
-  const C=R.carrierAmt,steps=buildOrder(R),missing=S.mix.products.some(p=>!(num(p.rate)>0));
+  const C=R.carrierAmt,missing=S.mix.products.some(p=>!(num(p.rate)>0));
   const plan=[R.fullTanks?R.fullTanks+' full tank'+(R.fullTanks===1?'':'s'):'',R.partialGal?'1 partial load':''].filter(Boolean).join(' + ');
   const overBy=(total?R.prodVolA*R.acres:partial?C.prodPartial:C.prodFull)-vol;
   const warnings=[!S.mix.products.length?'No products added. These are carrier-only amounts.':'',missing?'One or more label rates are missing. Enter them in Edit mix before loading.':'',C.over?'Do not load. Products exceed the tank volume by '+showVol1(Math.max(0,overBy),m)+(total?' across the job.':' for this load.')+' Check rates before loading; there is no room for carrier.':'',C.dryUnknown.length?'Dry products not subtracted: '+C.dryUnknown.join(', ')+' (no density entered; treated as negligible).':'',C.dryEst.length?'Dry product volume is estimated from entered bulk density: '+C.dryEst.join(', ')+'.':'',R.fert?'Fertilizer carrier: check every label for compatibility and crop-burn restrictions; jar-test this exact carrier.':'',R.fert?.err||''].filter(Boolean);
   const parts=cParts(R,key,m);
   const carrier=`<div id="carrierCard"><div class="kvline"><b>Carrier to add</b><span class="loadamount">${showVol1(C[key],m)}</span></div>${C.parts.length>1?C.parts.map((p,i)=>`<div class="kvline"><span>${esc(p.label)}</span><b>${showVol1(parts[i],m)}</b></div>`).join(''):''}${R.fert?.density>0?`<div class="tiny muted">Fertilizer weight: ${fmt((total?R.fert.lbTotal:partial?R.fert.perPartial*R.fert.density:R.fert.lbFull)*(m ? 0.45359237 : 1),1)} ${m?'kg':'lb'}</div>`:''}</div>`;
   const product=({p,o})=>`<div class="load-product" data-load-product="${esc(p.id)}"><span>${esc(p.name||'Unnamed product')}${registrationText(p)?`<small class="tiny muted" style="display:block">${esc(registrationText(p))}</small>`:''}</span><b class="loadamount">${num(p.rate)>0?showAmt(o[key],o.kind,m,p.unit).main:'Enter label rate'}</b></div>`;
-  const sequence=steps.map((s,i)=>{
-    if(total && !s.items.length)return '';
-    let desc=s.d;
-    if(i===steps.length-1)desc='Top off to '+showVol1(vol,m)+'. Keep agitating and spray the mix the same day.';
-    return `<div class="load-step"><h3>${total?'':(i+1)+'. '}${esc(s.t)}</h3>${total?'':`<p class="small muted">${esc(desc)}</p>`}${s.items.map(product).join('')}</div>`;
-  }).join('');
+  const quantities=S.mix.products.map((p,i)=>product({p,o:R.products[i]})).join('');
   el.innerHTML=`<label class="f" for="loadTankChoice">Show amounts for</label><select id="loadTankChoice" class="loadselect">${R.fullTanks?`<option value="perFull"${key==='perFull'?' selected':''}>Full tank</option>`:''}${R.partialGal?`<option value="perPartial"${partial?' selected':''}>Last partial tank</option>`:''}<option value="total"${total?' selected':''}>Whole job totals — not one tank</option></select>
     <div id="tankStats" class="small muted">${esc(plan)} · ${showArea(area,S.mix,m)} ${total?'whole job':partial?'last partial load':'per full tank'}</div>
     ${warnings.map(t=>`<p class="warn small load-warning" role="alert">⚠ ${esc(t)}</p>`).join('')}
-    ${total?`<div class="note"><b>Planning totals — not a single tank.</b> Total spray: ${showVol1(vol,m)}. Choose Full tank${R.partialGal?' or Last partial tank':''} for loading instructions.</div>`:'<div class="note small"><b>Label first.</b> Follow each product’s label if its order differs. Confirm formulation types and jar-test new combinations.</div>'}
-    ${carrier}${sequence}
-    <button class="btn alt sm" id="mixOrderGuide" type="button">Mixing guide / jar test ›</button>`;
+    ${total?`<div class="note"><b>Planning totals — not a single tank.</b> Total spray: ${showVol1(vol,m)}. Choose Full tank${R.partialGal?' or Last partial tank':''} for per-load quantities.</div>`:'<div class="note small"><b>Label first.</b> Always follow the product labels.</div>'}
+    ${total?'':`<p id="loadVolume" class="small muted">Spray volume: <b>${showVol1(vol,m)}</b></p>`}
+    ${carrier}<div id="loadProducts">${quantities}</div>`;
   $('loadTankChoice').onchange=e=>{loadingChoice=e.target.value;renderLoadingTank(TM.calc(S.mix));};
-  $('mixOrderGuide').onclick=()=>showTab('order');
 }
 function registrationText(p){
   const wa=p.waReg || (isWsdaLib(p)?p.epa:'');
