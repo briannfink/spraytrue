@@ -248,6 +248,37 @@ details.setup>summary,#productAdvanced>summary{font-weight:750;cursor:pointer;mi
 #loadingTank .load-meta{margin:6px 0 10px} #loadingTank .note{margin:10px 0}
 #tankStats{margin:0 0 10px} #mixMore{margin-top:12px} #mixMore .card{box-shadow:none;border:0;padding:0;margin:8px 0}
 #mixEditPane .prod:last-child{margin-bottom:0} #mixNext:disabled{opacity:.55}
+
+/* v2.16 Mixing mode: forced black on white for sunlight / E Ink; no color or animation dependence */
+body.mm-on{overflow:hidden}
+#mixModeOverlay{position:fixed;inset:0;z-index:100;background:#fff;color:#000;overflow:auto;-webkit-overflow-scrolling:touch;padding:calc(10px + env(safe-area-inset-top)) calc(12px + env(safe-area-inset-right)) calc(16px + env(safe-area-inset-bottom)) calc(12px + env(safe-area-inset-left));font-size:clamp(20px,4.6vw,34px);line-height:1.25}
+#mixModeOverlay[hidden]{display:none}
+#mixModeOverlay *{transition:none!important;animation:none!important}
+#mixModeOverlay .mm-top{display:flex;gap:10px;align-items:flex-start;justify-content:space-between}
+#mixModeOverlay .mm-scope{font-weight:900;font-size:1em;letter-spacing:.02em}
+#mixModeOverlay .mm-name{font-size:.75em;font-weight:700}
+#mixModeOverlay .mm-btn{flex:0 0 auto;min-height:60px;min-width:60px;padding:0 16px;border:3px solid #000;border-radius:10px;background:#fff;color:#000;font:inherit;font-size:.8em;font-weight:900}
+#mixModeOverlay .mm-btn:focus-visible,#mixModeOverlay .mm-row:focus-visible{outline:4px solid #000;outline-offset:3px}
+#mixModeOverlay .mm-progress{margin:10px 0;padding:6px 10px;border:3px solid #000;border-radius:10px;font-weight:900;font-size:.9em}
+#mixModeOverlay .mm-warn{margin:8px 0;padding:8px 10px;border:4px solid #000;font-weight:900;font-size:.8em}
+#mixModeOverlay .mm-list{list-style:none;margin:0;padding:0}
+#mixModeOverlay .mm-list li{margin:0 0 10px}
+#mixModeOverlay .mm-row{display:flex;align-items:center;gap:14px;width:100%;min-height:84px;padding:12px;border:3px solid #000;border-radius:12px;background:#fff;color:#000;font:inherit;text-align:left;cursor:pointer}
+#mixModeOverlay .mm-row:disabled{cursor:default;border-style:dashed}
+#mixModeOverlay .mm-box{flex:0 0 auto;width:1.6em;height:1.6em;border:4px solid #000;border-radius:6px;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:1.1em;background:#fff}
+#mixModeOverlay .mm-text{flex:1 1 auto;min-width:0;overflow-wrap:anywhere}
+#mixModeOverlay .mm-pname{display:block;font-weight:800}
+#mixModeOverlay .mm-sub{display:block;font-size:.6em;font-weight:600}
+#mixModeOverlay .mm-amt{flex:0 0 auto;max-width:48%;text-align:right;font-weight:900;font-size:1.15em;overflow-wrap:anywhere}
+#mixModeOverlay .mm-row.done{border-style:dotted;color:#555}
+#mixModeOverlay .mm-row.done .mm-pname,#mixModeOverlay .mm-row.done .mm-amt{text-decoration:line-through;text-decoration-thickness:3px}
+#mixModeOverlay .mm-row.done .mm-box{background:#000;color:#fff}
+#mixModeOverlay .mm-foot{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin-top:6px}
+#mixModeOverlay .mm-note{font-size:.6em;font-weight:700}
+@media (orientation:landscape) and (min-width:700px){#mixModeOverlay .mm-list{display:grid;grid-template-columns:1fr 1fr;gap:10px}#mixModeOverlay .mm-list li{margin:0}}
+@media (max-width:420px){#mixModeOverlay .mm-row{flex-wrap:wrap}#mixModeOverlay .mm-amt{max-width:100%;flex-basis:100%;text-align:left;padding-left:calc(1.6em + 14px)}}
+@media print{#mixModeOverlay{display:none!important}}
+#mixModeBtn{margin:10px 0}
 </style>
 <style>/* required styles */
 
@@ -1126,6 +1157,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
 </nav>
 
 <dialog id="dlg"><div class="dh"><b id="dlgT"></b><button class="btn sm alt" id="dlgX">Close</button></div><div class="db" id="dlgB"></div></dialog>
+<div id="mixModeOverlay" role="dialog" aria-modal="true" aria-label="Mixing mode checklist" hidden></div>
 <div class="toast" id="toast"></div>
 <div class="toast undo" id="undoToast" role="status" aria-live="polite"><span id="undoMsg">Mix cleared</span> <button type="button" id="btnUndoClear">Undo</button></div>
 <div id="pvBar">
@@ -1154,7 +1186,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
    3. Storage (localStorage)
    4. UI: Mix, Order/Jar test, Lookup (EPA), Saved, Print
    ===================================================================== */
-const APP_VERSION = "2.15.2";
+const APP_VERSION = "2.16.0";
 const TM = window.TM = {};
 
 /* ---------- 1. Constants ---------- */
@@ -3991,7 +4023,7 @@ const SYNC_CONFIG = Object.freeze({
 const SYNC_LOCAL = {session:'tankmix.auth.v1', meta:'tankmix.sync.v1', recovery:'tankmix.recovery.v1', password:'tankmix.passwordRecovery.v1'};
 const syncCopy = x => JSON.parse(JSON.stringify(x));
 const syncRead = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) || d; } catch(e){ return d; } };
-const syncEligible = k => typeof k==='string' && k.startsWith('tm.') && !['tm.syncMeta','tm.syncSession'].includes(k);
+const syncEligible = k => typeof k==='string' && k.startsWith('tm.') && !['tm.syncMeta','tm.syncSession','tm.mixChecks'].includes(k);
 const syncDigest = s => { let a=2166136261,b=5381; for (let i=0;i<s.length;i++){ a=Math.imul(a^s.charCodeAt(i),16777619); b=Math.imul(b,33)^s.charCodeAt(i); } return s.length+':'+(a>>>0)+':'+(b>>>0); };
 const syncTime = r => Date.parse(r && r.updated_at || '') || 0;
 const syncNorm = s => String(s||'').trim().toLowerCase().replace(/\s+/g,' ');
@@ -4432,9 +4464,86 @@ TM.showTankProductAmt=showTankProductAmt;
 function tankProductAmountHtml(base,kind,metric,enteredUnit){
   return esc(showTankProductAmt(base,kind,metric,enteredUnit)).replace(/^(.+ gal) (.+ fl oz)$/, '<span class="measure">$1</span> <span class="measure">$2</span>');
 }
+/* v2.16 Mixing mode: full-screen, black-on-white tank checklist. Display only; calculations untouched.
+   Check state is device-local (tm.mixChecks, excluded from sync) and resets when the mix or amounts change. */
+const MIXCHK_KEY='tm.mixChecks';
+const MM={open:false,pushed:false,lock:null,rows:[],slot:'',digest:''};
+function mixModeRows(R){
+  const key=loadingChoice,m=isMetric(),C=R.carrierAmt,parts=cParts(R,key,m),rows=[];
+  if(C.parts.length>1)C.parts.forEach((p,i)=>rows.push({id:'carrier:'+p.key,name:p.label,amt:showVol1(parts[i],m),kind:'carrier'}));
+  else rows.push({id:'carrier',name:(C.parts[0]&&C.parts[0].label)||'Water',amt:showVol1(C[key],m),kind:'carrier'});
+  const ordered=buildOrder(R).flatMap(s=>s.items);
+  ordered.forEach(({p,o})=>rows.push({id:'p:'+p.id,name:p.name||'Unnamed product',sub:registrationText(p),amt:num(p.rate)>0?showTankProductAmt(o[key],o.kind,m,p.unit):'',kind:'product',missing:!(num(p.rate)>0)}));
+  return rows;
+}
+function mixChecksRead(){try{const v=JSON.parse(localStorage.getItem(MIXCHK_KEY));return v&&typeof v==='object'&&!Array.isArray(v)?v:{};}catch(e){return {};}}
+function mixChecksWrite(all){
+  const entries=Object.entries(all).sort((a,b)=>(b[1].at||0)-(a[1].at||0)).slice(0,20);
+  try{localStorage.setItem(MIXCHK_KEY,JSON.stringify(Object.fromEntries(entries)));}catch(e){}
+}
+function mixModeState(){
+  const all=mixChecksRead(),s=all[MM.slot];
+  return s&&s.digest===MM.digest&&Array.isArray(s.checked)?new Set(s.checked):new Set();
+}
+function mixModeSave(set){const all=mixChecksRead();all[MM.slot]={digest:MM.digest,checked:[...set],at:Date.now()};mixChecksWrite(all);}
+function renderMixingMode(){
+  const el=$('mixModeOverlay');if(!el||!MM.open)return;
+  const R=TM.calc(S.mix);
+  if(!mixLoadReady(R)){closeMixingMode();return;}
+  const key=loadingChoice,total=key==='total',partial=key==='perPartial',m=isMetric();
+  const rows=mixModeRows(R);MM.rows=rows;
+  MM.slot=(S.mix.id||'draft')+'|'+key;
+  MM.digest=syncDigest(syncStable({mix:S.mix.id||null,key,units:m,rows:rows.map(r=>[r.id,r.name,r.amt])}));
+  const checked=mixModeState();
+  // Drop stale saved entries for this slot automatically.
+  const all=mixChecksRead();if(all[MM.slot]&&all[MM.slot].digest!==MM.digest){delete all[MM.slot];mixChecksWrite(all);}
+  const live=rows.filter(r=>!r.missing),done=live.filter(r=>checked.has(r.id)).length;
+  const vol=total?R.totalGal:partial?R.partialGal:R.tank;
+  const scope=total?'WHOLE JOB TOTALS — NOT ONE TANK':partial?'LAST PARTIAL TANK':'FULL TANK';
+  const C=R.carrierAmt,warn=[S.mix.products.some(p=>!(num(p.rate)>0))?'A label rate is missing. Enter it in Edit mix.':'',C.over?'DO NOT LOAD: products exceed the tank volume.':''].filter(Boolean);
+  el.innerHTML=`<div class="mm-top"><div class="mm-head"><div class="mm-scope">${esc(scope)}</div><div class="mm-name">${esc(S.mix.name||'Untitled mix')} · ${esc(total?'total spray':'tank')} ${esc(showVol1(vol,m))}</div></div>
+    <button type="button" class="mm-btn" id="mmClose" aria-label="Close mixing mode">✕ Close</button></div>
+    <div class="mm-progress" id="mmProgress" role="status" aria-live="polite">${done} of ${live.length} added${live.length&&done===live.length?' — all done ✓':''}</div>
+    ${warn.map(t=>`<div class="mm-warn" role="alert">⚠ ${esc(t)}</div>`).join('')}
+    <ul class="mm-list">${rows.map(r=>{const on=checked.has(r.id);return `<li><button type="button" class="mm-row${on?' done':''}" data-mm="${esc(r.id)}" role="checkbox" aria-checked="${on}"${r.missing?' disabled':''}>
+      <span class="mm-box" aria-hidden="true">${on?'✓':''}</span><span class="mm-text"><span class="mm-pname">${esc(r.name)}</span>${r.sub?`<span class="mm-sub">${esc(r.sub)}</span>`:''}</span>
+      <span class="mm-amt">${r.missing?'Enter label rate':esc(r.amt)}</span></button></li>`;}).join('')}</ul>
+    <div class="mm-foot"><button type="button" class="mm-btn" id="mmReset">Reset checks</button><span class="mm-note">Label first. Always follow product labels.</span></div>`;
+  $('mmClose').onclick=closeMixingMode;
+  $('mmReset').onclick=()=>{mixModeSave(new Set());renderMixingMode();};
+  el.querySelectorAll('[data-mm]').forEach(b=>b.onclick=()=>{
+    const s=mixModeState(),id=b.dataset.mm;if(s.has(id))s.delete(id);else s.add(id);mixModeSave(s);renderMixingMode();
+    const again=el.querySelector(`[data-mm="${CSS.escape(id)}"]`);if(again)again.focus({preventScroll:true});
+  });
+}
+async function mixModeWake(){
+  try{if(MM.open&&navigator.wakeLock&&document.visibilityState==='visible'&&!MM.lock){MM.lock=await navigator.wakeLock.request('screen');MM.lock.addEventListener?.('release',()=>{MM.lock=null;});}}catch(e){MM.lock=null;}
+}
+function openMixingMode(){
+  if(MM.open)return;
+  MM.open=true;const el=$('mixModeOverlay');el.hidden=false;document.body.classList.add('mm-on');
+  try{history.pushState({tmMixMode:1},'');MM.pushed=true;}catch(e){MM.pushed=false;}
+  renderMixingMode();mixModeWake();
+  const c=$('mmClose');if(c)c.focus({preventScroll:true});
+}
+function hideMixingMode(){
+  MM.open=false;const el=$('mixModeOverlay');if(el){el.hidden=true;el.innerHTML='';}
+  document.body.classList.remove('mm-on');
+  try{if(MM.lock)MM.lock.release();}catch(e){}MM.lock=null;
+  const b=$('mixModeBtn');if(b)b.focus({preventScroll:true});
+}
+function closeMixingMode(){
+  if(!MM.open)return;
+  if(MM.pushed&&history.state&&history.state.tmMixMode){MM.pushed=false;hideMixingMode();MM.skipPop=true;try{history.back();}catch(e){MM.skipPop=false;}return;}
+  MM.pushed=false;hideMixingMode();
+}
+window.addEventListener('popstate',()=>{if(MM.skipPop){MM.skipPop=false;return;}if(MM.open){MM.pushed=false;hideMixingMode();}});
+document.addEventListener('keydown',e=>{if(MM.open&&e.key==='Escape'){e.preventDefault();closeMixingMode();}});
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')mixModeWake();});
+TM.openMixingMode=openMixingMode;TM.closeMixingMode=closeMixingMode;TM.mixingModeOpen=()=>MM.open;
 function renderLoadingTank(R){
   const el=$('loadingTank');if(!el)return;
-  if(!mixLoadReady(R)){el.hidden=true;return;}
+  if(!mixLoadReady(R)){el.hidden=true;if(MM.open)closeMixingMode();return;}
   el.hidden=false;
   if(loadingChoice==='perFull' && R.fullTanks===0)loadingChoice='perPartial';
   if(loadingChoice==='perPartial' && !R.partialGal)loadingChoice='perFull';
@@ -4453,8 +4562,11 @@ function renderLoadingTank(R){
     ${warnings.map(t=>`<p class="warn small load-warning" role="alert">⚠ ${esc(t)}</p>`).join('')}
     ${total?`<div class="note"><b>Planning totals — not a single tank.</b> Total spray: ${showVol1(vol,m)}. Choose Full tank${R.partialGal?' or Last partial tank':''} for per-load quantities.</div>`:'<div class="note small"><b>Label first.</b> Always follow the product labels.</div>'}
     ${total?'':`<p id="loadVolume" class="small muted">Spray volume: <b>${showVol1(vol,m)}</b></p>`}
+    <button type="button" class="btn block" id="mixModeBtn">⛶ Full screen · check off</button>
     ${carrier}<div id="loadProducts">${quantities}</div>`;
   $('loadTankChoice').onchange=e=>{loadingChoice=e.target.value;renderLoadingTank(TM.calc(S.mix));};
+  $('mixModeBtn').onclick=openMixingMode;
+  if(MM.open)renderMixingMode();
 }
 function registrationText(p){
   const wa=p.waReg || (isWsdaLib(p)?p.epa:'');
