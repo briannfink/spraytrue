@@ -1,4 +1,14 @@
-# SprayTrue (v2.15.2 — PREVIEW ONLY)
+# SprayTrue (v2.16.0 — PREVIEW ONLY; live is v2.15.2)
+
+## v2.16.0 — Full-screen mixing mode (preview)
+
+- **Mix › Tank amounts** has a new **⛶ Full screen · check off** button that opens a full-screen checklist for the selected scope (full tank, last partial tank, or whole-job totals, clearly labeled).
+- Very large, forced black-on-white text for sunlight and E Ink. No color or animation is needed: checked rows show a filled ✓ box, strike-through and dotted border. Big tap targets, with a two-column layout in wide landscape.
+- Water/carrier row(s) first, then every product with the same amounts and formatting as Tank amounts (gallon products as whole gal + fl oz). Rows follow the Tools mixing sequence, without any steps or instructions.
+- "N of M added" progress readout, **Reset checks**, and **✕ Close**. Escape and the Back button also close it.
+- Checks are saved on this device per mix + scope (`tm.mixChecks`, not synced) and reset automatically when the mix or any amount changes. Rows with a missing label rate are shown but can't be checked.
+- Keeps the screen awake with the Wake Lock API where the browser supports it; otherwise it does nothing.
+- No calculation changes. Tests: `tools/test23.js` (42 assertions).
 
 ## v2.15.2 — jug-friendly Tank product quantities (preview only)
 
