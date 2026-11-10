@@ -1,4 +1,7 @@
 # SprayTrue's weekly WSDA refresh. Deploy repo contains built HTML, not source/build.py.
+# Pages publishes from branch main (/). Pushing the data commit is the only publication.
+# Do not also call deploy-pages: that records this workflow's starting SHA and blocks
+# the branch build of the new commit.
 name: Update WSDA product index
 on:
   schedule:
@@ -7,7 +10,6 @@ on:
 permissions:
   contents: write
   pages: write
-  id-token: write
 concurrency:
   group: wsda-refresh
   cancel-in-progress: false
@@ -15,15 +17,12 @@ jobs:
   refresh:
     runs-on: ubuntu-latest
     timeout-minutes: 180
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
-      - name: Test incomplete-refresh rejection (offline fixtures)
-        run: python3 -m unittest discover -s tools -p test_wsda.py -v
+      - name: Test incomplete-refresh rejection and Pages publication rules (offline fixtures)
+        run: python3 -m unittest discover -s tools -p 'test_*.py' -v
       - name: Scrape WSDA public search
         run: python3 tools/update_wsda.py --adjuvants --minrisk --fertilizer
       - name: Copy dataset to published live and preview paths
@@ -56,18 +55,19 @@ jobs:
           git commit -m "chore: refresh WSDA product index"
           git push
           echo "changed=true" >> "$GITHUB_OUTPUT"
-      # A GITHUB_TOKEN push does not trigger another Pages build: deploy explicitly.
-      - name: Upload refreshed site
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Wait for Pages to publish the data commit
         if: steps.commit.outputs.changed == 'true'
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: .
-      - name: Publish refreshed site
-        if: steps.commit.outputs.changed == 'true'
-        id: deployment
-        uses: actions/deploy-pages@v4
+        env:
+          PAGES_SHA: ${{ steps.commit.outputs.sha }}
+          PAGES_TIMEOUT_SECONDS: "600"
+          PAGES_POLL_SECONDS: "10"
+          # github.token is the job's existing GITHUB_TOKEN. Actions does not export it.
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: python3 tools/wait_for_pages.py
       - name: Report a failed or incomplete refresh
         if: failure()
         run: |
           echo "### WSDA refresh rejected or failed" >> "$GITHUB_STEP_SUMMARY"
-          echo "No incomplete dataset is published. The last successful dataset remains in place. See the scrape/test logs for the expected and received product counts." >> "$GITHUB_STEP_SUMMARY"
+          echo "If the scrape failed, the previous data files were left unchanged. If this failed after the data commit, that commit is on main but GitHub Pages did not finish publishing it. See the logs." >> "$GITHUB_STEP_SUMMARY"
