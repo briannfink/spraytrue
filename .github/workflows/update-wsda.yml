@@ -62,6 +62,9 @@ jobs:
           PAGES_SHA: ${{ steps.commit.outputs.sha }}
           PAGES_TIMEOUT_SECONDS: "600"
           PAGES_POLL_SECONDS: "10"
+          # github.token is the job's existing GITHUB_TOKEN. Actions does not export it.
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
         run: python3 tools/wait_for_pages.py
       - name: Report a failed or incomplete refresh
         if: failure()

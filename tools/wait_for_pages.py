@@ -58,12 +58,18 @@ def fetch_pages_builds(repo, token, urlopen=urllib.request.urlopen):
     raise RuntimeError("GitHub Pages builds response was not a list")
   return body
 
+REQUIRED_ENV = ("PAGES_SHA", "GITHUB_REPOSITORY", "GITHUB_TOKEN")
+
+def missing_required(environ):
+  return [name for name in REQUIRED_ENV if not str(environ.get(name) or "").strip()]
+
 def main():
-  sha = os.environ.get("PAGES_SHA", "").strip()
-  repo = os.environ.get("GITHUB_REPOSITORY", "").strip()
-  token = os.environ.get("GITHUB_TOKEN", "").strip()
-  if not sha or not repo or not token:
+  missing = missing_required(os.environ)
+  if missing:
     raise RuntimeError("PAGES_SHA, GITHUB_REPOSITORY, and GITHUB_TOKEN are required")
+  sha = os.environ["PAGES_SHA"].strip()
+  repo = os.environ["GITHUB_REPOSITORY"].strip()
+  token = os.environ["GITHUB_TOKEN"].strip()
   timeout = float(os.environ.get("PAGES_TIMEOUT_SECONDS", "600"))
   poll = float(os.environ.get("PAGES_POLL_SECONDS", "10"))
   build = wait_for_commit(
