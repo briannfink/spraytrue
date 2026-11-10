@@ -6,6 +6,10 @@ Source: public WAPRS / WALTR search at
 No public REST API; CSV export postback is broken without ASP.NET client scripts,
 so this script paginates the HTML result grids (25 rows/page) politely (~1s between
 pages, identifiable User-Agent). Government data meant for public download.
+WALTR's fertilizer total counts grid rows. The same product id can appear twice on
+one page when two label files are listed; those rows are collapsed only after every
+source row and page has been received. A short, skipped, repeated, or conflicting
+page still leaves the last successful dataset in place.
 
 Writes: data/wsda-products.json (compact, searched offline by the app).
 
@@ -22,6 +26,10 @@ OUT = ROOT / "data" / "wsda-products.json"
 BASE = "https://fortress.wa.gov/agr/pisces/WSDASearch"
 UA = "SprayTrueDataBot/1.0 (+https://briannfink.github.io/spraytrue/; offline dataset refresh; ~1 req/s; contact via GitHub briannfink/spraytrue)"
 DELAY = 1.0
+PAGE_SIZE = 25
+# Registration fields only. A second label file is not a second product: WALTR repeats
+# the same ShowProduct id on one page when two PDFs are attached, and those grid columns match.
+IDENTITY_FIELDS = ("id", "reg", "name", "company", "npk", "ai", "status", "exp", "db", "kind", "type")
 
 def log(*a):
   print(*a, flush=True)
@@ -153,10 +161,81 @@ def next_page_target(html, grid="dgProducts", colspan="14"):
       return tgt  # forward ellipsis only
   return None
 
-def verify_complete(kind, total, rows):
-  """Fail closed: do not publish a partial/empty scrape as a fresh dataset."""
-  if total <= 0 or len(rows) != total:
-    raise RuntimeError(f"INCOMPLETE WSDA {kind}: expected {total} unique products, received {len(rows)}. Last successful dataset was NOT replaced.")
+def product_identity(row):
+  out = []
+  for key in IDENTITY_FIELDS:
+    value = row.get(key)
+    out.append(value if isinstance(value, int) else (value or ""))
+  return tuple(out)
+
+def add_product(seen, row):
+  """Keep the first listing of a product id. True means this row was an exact duplicate."""
+  prev = seen.get(row["id"])
+  if prev is None:
+    seen[row["id"]] = row
+    return False
+  if product_identity(prev) != product_identity(row):
+    raise RuntimeError(
+      f"WSDA id {row['id']} is listed as conflicting products "
+      f"{product_identity(prev)} vs {product_identity(row)}. "
+      "Last successful dataset was NOT replaced.")
+  if not prev.get("label") and row.get("label"):
+    prev["label"] = row["label"]
+  return True
+
+def account_page(kind, total, page, html, rows, seen):
+  """Accept this page only when it is the next complete server page of the advertised result."""
+  if total <= 0:
+    raise RuntimeError(f"INCOMPLETE WSDA {kind}: expected a positive source total, received {total}. Last successful dataset was NOT replaced.")
+  cur = current_page(html)
+  if cur is None:
+    if page == 1 and total <= PAGE_SIZE:
+      cur = 1
+    else:
+      raise RuntimeError(f"INCOMPLETE WSDA {kind}: page {page} has no pager. Last successful dataset was NOT replaced.")
+  if cur != page:
+    raise RuntimeError(f"INCOMPLETE WSDA {kind}: expected page {page}, server said {cur}. Last successful dataset was NOT replaced.")
+  expected_pages = (total + PAGE_SIZE - 1) // PAGE_SIZE
+  if page > expected_pages:
+    raise RuntimeError(f"INCOMPLETE WSDA {kind}: page {page} exceeds {expected_pages} pages for {total} source rows. Last successful dataset was NOT replaced.")
+  expect_n = PAGE_SIZE if page < expected_pages else total - PAGE_SIZE * (expected_pages - 1)
+  if len(rows) != expect_n:
+    raise RuntimeError(f"INCOMPLETE WSDA {kind}: page {page} had {len(rows)} rows, expected {expect_n} of {total} source rows. Last successful dataset was NOT replaced.")
+  dup_ids = []
+  for row in rows:
+    if add_product(seen, row):
+      dup_ids.append(row["id"])
+  if rows and len(dup_ids) == len(rows):
+    raise RuntimeError(f"INCOMPLETE WSDA {kind}: page {page} repeated {len(rows)} already-seen products. Last successful dataset was NOT replaced.")
+  if dup_ids:
+    log(f"[{kind}] page {cur}: duplicate listing of product id {dup_ids}; unique {len(seen)}")
+  return len(dup_ids)
+
+def verify_complete(kind, total, rows, parsed=None, pages=None):
+  """Fail closed unless every advertised source row was parsed from a complete page walk.
+
+  Unique products may be fewer than the source total only when the extra rows were
+  exact duplicate listings of a product already kept. A short page, skipped page,
+  repeated page, or conflicting id still rejects the download.
+  """
+  if parsed is None:
+    parsed = len(rows)
+  if pages is None:
+    pages = [1] if parsed else []
+  if total <= 0 or parsed != total or len(rows) > parsed:
+    raise RuntimeError(f"INCOMPLETE WSDA {kind}: expected {total} source rows, parsed {parsed}, unique products {len(rows)}. Last successful dataset was NOT replaced.")
+  expected_pages = (total + PAGE_SIZE - 1) // PAGE_SIZE
+  if pages != list(range(1, expected_pages + 1)):
+    raise RuntimeError(f"INCOMPLETE WSDA {kind}: expected pages 1..{expected_pages}, received {len(pages)} page(s). Last successful dataset was NOT replaced.")
+  return rows
+
+class ProductRows(list):
+  """Verified products. wsda_meta records source rows versus collapsed duplicates."""
+
+def finish_scrape(kind, total, seen, parsed, pages):
+  rows = ProductRows(verify_complete(kind, total, list(seen.values()), parsed, pages))
+  rows.wsda_meta = {"source_rows": total, "duplicate_rows": parsed - len(rows)}
+  log(f"[{kind}] done unique {len(rows)} / source rows {parsed}")
   return rows
 
 def scrape_pest(session: Session, kind: str, checkboxes: dict) -> list:
@@ -172,17 +251,22 @@ def scrape_pest(session: Session, kind: str, checkboxes: dict) -> list:
   log(f"[{kind}] total={total}")
   seen = {}
   page = 1
+  parsed = 0
+  pages = []
   while True:
+    rows = []
     for r in parse_pest_rows(html):
       r["kind"] = kind
-      seen[r["id"]] = r
+      rows.append(r)
+    account_page(kind, total, page, html, rows, seen)
+    parsed += len(rows)
+    pages.append(page)
     cur = current_page(html) or page
     if page == 1 or page % 10 == 0:
-      log(f"[{kind}] page {cur}: {len(seen)}/{total}")
-    if len(seen) >= total > 0: break
+      log(f"[{kind}] page {cur}: {len(seen)} unique / {parsed} parsed / {total}")
     tgt = next_page_target(html)
     if not tgt:
-      log(f"[{kind}] stop at page {cur}, have {len(seen)}/{total}")
+      log(f"[{kind}] stop at page {cur}, parsed {parsed} unique {len(seen)}/{total}")
       break
     time.sleep(DELAY)
     f = hidden(html); fill_empties(html, f); f.update(checkboxes)
@@ -190,8 +274,7 @@ def scrape_pest(session: Session, kind: str, checkboxes: dict) -> list:
     html, url = session.post(BASE + "/PesticideSearch", f, url)
     page += 1
     if page > 900: break
-  log(f"[{kind}] done {len(seen)}")
-  return verify_complete(kind, total, list(seen.values()))
+  return finish_scrape(kind, total, seen, parsed, pages)
 
 def scrape_fert(session: Session) -> list:
   html, url = session.get(BASE + "/Default")
@@ -209,6 +292,8 @@ def scrape_fert(session: Session) -> list:
   log(f"[fertilizer] columns: {ths[:12]}")
   seen = {}
   page = 1
+  parsed = 0
+  pages = []
   grid = "dgProducts"
   gm = re.search(r"__doPostBack\((?:&#39;|')((?:dg|grd)\w*)\$ctl", html)
   if gm: grid = gm.group(1)
@@ -234,15 +319,15 @@ def scrape_fert(session: Session) -> list:
         src = col("Nutrient Sources")
         if src: r["ai"] = src
       r["kind"] = "fertilizer"
-      seen[r["id"]] = r
+    account_page("fertilizer", total, page, html, rows, seen)
+    parsed += len(rows)
+    pages.append(page)
     cur = current_page(html) or page
     if page == 1 or page % 10 == 0:
-      log(f"[fertilizer] page {cur}: {len(seen)}/{total}")
-    if total and len(seen) >= total: break
-    if not rows and page > 1: break
+      log(f"[fertilizer] page {cur}: {len(seen)} unique / {parsed} parsed / {total}")
     tgt = next_page_target(html, grid=grid)
     if not tgt:
-      log(f"[fertilizer] stop at page {cur}, have {len(seen)}/{total}")
+      log(f"[fertilizer] stop at page {cur}, parsed {parsed} unique {len(seen)}/{total}")
       break
     time.sleep(DELAY)
     f = hidden(html); fill_empties(html, f)
@@ -250,8 +335,7 @@ def scrape_fert(session: Session) -> list:
     html, url = session.post(BASE + "/FertilizerSearch", f, url)
     page += 1
     if page > 900: break
-  log(f"[fertilizer] done {len(seen)}")
-  return verify_complete("fertilizer", total, list(seen.values()))
+  return finish_scrape("fertilizer", total, seen, parsed, pages)
 
 def compact(products):
   """Drop empty strings; keep stable key order for gzip-friendly diffs."""
@@ -317,7 +401,12 @@ def main():
   for kind, rows in fresh.items():
     if not rows:
       raise RuntimeError(f"Empty WSDA {kind}; last successful dataset retained")
-    refreshes[kind] = {"at": stamp, "count": len(rows), "verified": True}
+    meta = getattr(rows, "wsda_meta", {}) or {}
+    refreshes[kind] = {
+      "at": stamp, "count": len(rows), "verified": True,
+      "source_rows": meta.get("source_rows", len(rows)),
+      "duplicate_rows": meta.get("duplicate_rows", 0),
+    }
     for p in rows:
       by_id[(p["db"], p["id"])] = p
 
