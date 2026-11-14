@@ -301,15 +301,22 @@ details.fld[open]>summary{border-bottom:1px solid var(--line)}
 .fld-nm{font-weight:800;font-size:1.05em}.fld-sub{flex-basis:100%}
 .fld-body{padding:10px 12px 4px}
 .fld-acts{margin-bottom:10px}
-.casc-step{margin:0 0 14px;padding:0 0 14px;border-bottom:2px solid var(--line)}
-.casc-l{display:flex;align-items:center;gap:8px;font-size:17px;font-weight:800;margin-bottom:6px}
-.casc-n{display:inline-grid;place-items:center;width:28px;height:28px;border-radius:50%;background:var(--brand);color:#fff;font-size:15px;font-weight:900}
-select.casc-sel{min-height:58px;font-size:19px;font-weight:800;border-width:2px}
-.casc-btns{margin-top:8px}.casc-btns .btn{min-height:52px;font-size:16px;font-weight:800}
+.casc-step{display:flex;align-items:center;gap:6px;margin:0 0 8px}
+.casc-l{flex:0 0 52px;font-size:14px;font-weight:800;line-height:1.1;margin:0}
+.casc-c{display:block;font-size:11px;font-weight:700;color:var(--muted)}
+select.casc-sel{flex:1 1 auto;width:auto;min-width:0;min-height:44px;font-size:17px;font-weight:800;border-width:2px;padding:6px 8px;margin:0}
+.btn.casc-ib{flex:0 0 42px;width:42px;height:42px;min-height:42px;padding:0;font-size:20px;font-weight:900;line-height:1;display:inline-grid;place-items:center}
+.btn.casc-ib.sm{flex-basis:40px;width:40px;height:40px;min-height:40px;font-size:16px}
+.btn.casc-ib[aria-expanded="true"]{outline:3px solid var(--brand);outline-offset:1px}
+.casc-edit{margin:-2px 0 10px 58px;padding:8px;border:2px solid var(--line);border-radius:10px}
+.casc-er{display:flex;gap:6px;align-items:center}.casc-er input{flex:1 1 auto;min-width:0;min-height:42px;margin:0}
+.casc-del{display:flex;gap:8px;align-items:center;justify-content:space-between;margin-top:6px}
+.casc-imp{margin:2px 0 4px}
+.fld-acts{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px}.fld-acts .btn{flex:0 1 auto;min-height:40px}
 .btn.big{min-height:54px;font-size:17px;font-weight:800}
-.fld-panel{border:3px solid var(--line);border-radius:14px;padding:12px;margin:12px 0}
-.fld-head{margin-bottom:10px}.fld-head .fld-nm{font-size:1.2em}
-.fld-rh{margin:12px 0 8px;display:flex;gap:8px;align-items:center}
+.fld-panel{border:2px solid var(--line);border-radius:12px;padding:10px;margin:8px 0}
+.fld-head{margin-bottom:8px}.fld-head .fld-nm{font-size:1.2em}
+.fld-rh{margin:10px 0 6px;display:flex;gap:8px;align-items:center}
 .fi-all{border:2px dashed var(--line);border-radius:12px;padding:8px 10px}
 .grid.g3{grid-template-columns:repeat(3,1fr)}@media (max-width:420px){.grid.g3{grid-template-columns:1fr 1fr}.grid.g3>:last-child{grid-column:1/-1}}
 #mixBackEdit{margin-bottom:12px}
@@ -3096,14 +3103,15 @@ function renderFields(){
   if (!n.id && fl.length===1) n.id = fl[0].id;
   NAV.set(n);
   const realG = n.g && n.g!==NONE, realF = realG && n.f && n.f!==NONE;
-  const step = (num, label, id, opts, cur, ph, addId, addTxt, editId, editTxt, canAdd, canEdit, count) => `
-    <div class="casc-step" id="${id}Step"><label class="f casc-l" for="${id}"><span class="casc-n">${num}</span> ${label}${count!=null?` <span class="tiny muted">(${count})</span>`:""}</label>
+  // one compact row per step: label · dropdown · ＋ · ✎ ; an inline add/edit panel opens under a row only when tapped
+  const step = (kind, label, id, opts, cur, ph, addId, editId, canAdd, canEdit, count) => `
+    <div class="casc-step" id="${id}Step"><label class="casc-l" for="${id}">${label}${count!=null?` <span class="casc-c">${count}</span>`:""}</label>
       <select id="${id}" class="casc-sel">${navOpts(opts, cur, ph)}</select>
-      <div class="grid g2 casc-btns"><button type="button" class="btn alt" id="${addId}"${canAdd?"":" disabled"}>${addTxt}</button><button type="button" class="btn alt" id="${editId}"${canEdit?"":" disabled"}>${editTxt}</button></div></div>`;
-  let h = step(1, "Grower", "navGrower", gOpts, n.g, G.length||gOpts.length ? "Choose a grower…" : "No growers yet — tap ＋ Add grower", "growerAdd", "＋ Add grower", "growerEdit", "✎ Edit grower", true, realG, G.length);
-  if (n.g) h += step(2, "Farm", "navFarm", fOpts, n.f, fOpts.length ? "Choose a farm…" : "No farms yet — tap ＋ Add farm", "farmAdd", "＋ Add farm", "farmEdit", "✎ Edit farm", realG, realF, fOpts.filter(o=>o.v!==NONE).length);
-  if (n.g && n.f) h += step(3, "Field", "navField", fl.map(x=>({v:x.id, t:x.name+(TM.fields2.fieldShape(x)?" · "+fmt(+x.acres||GEO.acres(x.boundary),1)+" ac":"")+(N.hasNew(x)?" · 🛰 New":"")})), n.id, fl.length ? "Choose a field…" : "No fields yet — tap ＋ Add field", "fieldAdd", "＋ Add field", "fieldEdit", "✎ Edit field", true, !!n.id, fl.length);
-  h += `<button type="button" class="btn alt sm block" id="fieldImport" style="margin-top:4px">⬆ Import shapefile boundaries${realF?" into "+esc(n.f):realG?" for "+esc(n.g):""}</button>`;
+      <button type="button" class="btn alt casc-ib" id="${addId}" aria-label="Add ${kind}" title="Add ${kind}"${canAdd?"":" disabled"}${GFE.open===kind+":add"?' aria-expanded="true"':""}>＋</button><button type="button" class="btn alt casc-ib" id="${editId}" aria-label="Edit ${kind}" title="Edit ${kind}"${canEdit?"":" disabled"}${GFE.open===kind+":edit"?' aria-expanded="true"':""}>✎</button></div>${gfPanel(kind, n)}`;
+  let h = step("grower", "Grower", "navGrower", gOpts, n.g, G.length||gOpts.length ? "Choose a grower…" : "No growers yet — tap ＋", "growerAdd", "growerEdit", true, realG, G.length);
+  if (n.g) h += step("farm", "Farm", "navFarm", fOpts, n.f, fOpts.length ? "Choose a farm…" : "No farms yet — tap ＋", "farmAdd", "farmEdit", realG, realF, fOpts.filter(o=>o.v!==NONE).length);
+  if (n.g && n.f) h += step("field", "Field", "navField", fl.map(x=>({v:x.id, t:x.name+(TM.fields2.fieldShape(x)?" · "+fmt(+x.acres||GEO.acres(x.boundary),1)+" ac":"")+(N.hasNew(x)?" · 🛰 New":"")})), n.id, fl.length ? "Choose a field…" : "No fields yet — tap ＋", "fieldAdd", "fieldEdit", true, !!n.id, fl.length);
+  h += `<div class="casc-imp"><button type="button" class="btn alt sm" id="fieldImport" title="Import shapefile boundaries">⬆ Import shapefile${realF?" into "+esc(n.f):realG?" for "+esc(n.g):""}</button></div>`;
   nav.innerHTML = h;
   // selected field: summary, actions, every spray record newest first
   const f = n.id && S.fields.find(x=>x.id===n.id);
@@ -3111,21 +3119,23 @@ function renderFields(){
   if (f){ const logs = lg.byId.get(f.id)||[], sh = TM.fields2.fieldShape(f), ac = sh ? (+f.acres || GEO.acres(f.boundary)) : 0;
     body = `<div class="fld-panel" data-key="${esc(f.id)}"><div class="fld-head"><span class="fld-nm">📍 ${esc(f.name)}</span>${N.hasNew(f)?' <span class="badge">🛰 New image</span>':""}
       <div class="tiny muted">${f.grower||f.farm?esc(gfTxt(f))+" · ":""}${sh?fmt(ac,1)+" ac":"no boundary"}${f.src&&f.src.type==="shapefile"?" · shapefile":""}</div></div>
-      <div class="grid g3 fld-acts" data-id="${f.id}"><button class="btn sm" data-act="log">📝 Log spray</button>${sh?`<button class="btn alt sm" data-act="ndvi">🛰 NDVI</button>`:""}<button class="btn alt sm" data-act="open">🗺 Map</button></div>
+      <div class="fld-acts" data-id="${f.id}"><button class="btn sm" data-act="log">📝 Log spray</button>${sh?`<button class="btn alt sm" data-act="ndvi">🛰 NDVI</button>`:""}<button class="btn alt sm" data-act="open">🗺 Map</button></div>
       <h3 class="fld-rh">Spray records <span class="badge">${logs.length}</span></h3>
       ${logs.length ? logs.map(TM.logRowHtml).join("") : `<div class="empty small">No spray records for this field yet.</div>`}</div>`; }
   else if (!S.fields.length && !G.length) body = `<div class="empty small">Start with ＋ Add grower, then add its farms and fields — or import a shapefile. Spray records you save with “Save as a field” also show up here.</div>`;
   if (lg.none.length) body += `<details class="fld" data-key="__none" id="fieldUnassigned"${FLD.open.has("__none")?" open":""}><summary><span class="fld-nm">📂 Unassigned spray records</span><span class="tiny muted fld-sub">${lg.none.length} record${lg.none.length===1?"":"s"} without a saved field</span></summary><div class="fld-body">${lg.none.map(TM.logRowHtml).join("")}</div></details>`;
   el.innerHTML = body;
   // wiring
-  const go = v=>{ NAV.set(v); renderFields(); };
+  const go = v=>{ GFE.open = null; NAV.set(v); renderFields(); };
+  const tog = k=>{ GFE.open = GFE.open===k ? null : k; renderFields(); if (GFE.open) setTimeout(()=>{ const i = $("gfName"); if (i){ try { i.focus(); if (GFE.open.endsWith(":edit")) i.select(); } catch(e){} } }, 0); };
   $("navGrower").onchange = e=>go({g:e.target.value, f:"", id:""});
   if ($("navFarm")) $("navFarm").onchange = e=>go({g:n.g, f:e.target.value, id:""});
   if ($("navField")) $("navField").onchange = e=>go({g:n.g, f:n.f, id:e.target.value});
-  $("growerAdd").onclick = ()=>gfNameDlg("grower");
-  $("growerEdit").onclick = ()=>realG && gfEditDlg("grower", n.g);
-  if ($("farmAdd")) $("farmAdd").onclick = ()=>realG && gfNameDlg("farm", n.g);
-  if ($("farmEdit")) $("farmEdit").onclick = ()=>realF && gfEditDlg("farm", n.g, n.f);
+  $("growerAdd").onclick = ()=>tog("grower:add");
+  $("growerEdit").onclick = ()=>realG && tog("grower:edit");
+  if ($("farmAdd")) $("farmAdd").onclick = ()=>realG && tog("farm:add");
+  if ($("farmEdit")) $("farmEdit").onclick = ()=>realF && tog("farm:edit");
+  if ($("gfName")) bindGfPanel(n);
   if ($("fieldAdd")) $("fieldAdd").onclick = ()=>fieldFormDlg(null, NAV.preset());
   if ($("fieldEdit")) $("fieldEdit").onclick = ()=>{ const x = S.fields.find(y=>y.id===n.id); if (x) fieldDlg(x); };
   $("fieldImport").onclick = ()=>{ IMP.preset = null; $("fieldFile").click(); };
@@ -3134,40 +3144,41 @@ function renderFields(){
     if (b.dataset.act==="open") fieldDlg(x); else if (b.dataset.act==="ndvi") TM.ndviDlg(x); else logAtField(x); });
   TM.bindLogRows(el);
 }
-// ＋ Add grower / ＋ Add farm
-function gfNameDlg(kind, g){
-  const isG = kind==="grower";
-  openDlg(isG ? "＋ Add grower" : "＋ Add farm to "+g, `<label class="f" for="gfName">${isG?"Grower":"Farm"} name</label><input id="gfName" autocomplete="off" placeholder="${isG?"e.g. Fink Farms":"e.g. Home Place"}">
-    <button class="btn block big" id="gfSave" style="margin-top:12px">Save ${isG?"grower":"farm"}</button>`);
-  const save = ()=>{ const v = $("gfName").value.trim(); if (!v){ toast("Enter a name"); $("gfName").focus(); return; }
-    if (isG){ const ex = GF.grower(v); GF.ensure(ex ? ex.name : v); NAV.set({g:ex ? ex.name : v, f:"", id:""}); toast(ex ? "Grower already exists — selected" : "Grower added"); }
-    else { const ex = GF.farms(g).find(x=>lc(x)===lc(v)); GF.ensure(g, ex || v); NAV.set({g, f:ex || v, id:""}); toast(ex ? "Farm already exists — selected" : "Farm added"); }
-    closeDlg(); renderFields(); renderLog(); };
-  $("gfSave").onclick = save; $("gfName").onkeydown = e=>{ if (e.key==="Enter"){ e.preventDefault(); save(); } };
-  setTimeout(()=>{ try { $("gfName").focus(); } catch(e){} }, 30);
+/* ＋ / ✎ for grower and farm: a compact inline panel under that row (only one open at a time) */
+const GFE = { open:null };
+function gfAffects(kind, n){ const isG = kind==="grower", A = GF.affected(n.g, isG ? null : n.f), farms = isG ? GF.farms(n.g).length : 0;
+  return { A, farms, txt:[isG ? farms+" farm"+(farms===1?"":"s") : "", A.fields.length+" field"+(A.fields.length===1?"":"s"), A.recs.length+" spray record"+(A.recs.length===1?"":"s")].filter(Boolean).join(", ") }; }
+function gfPanel(kind, n){
+  if (!GFE.open || !GFE.open.startsWith(kind+":")) return "";
+  const add = GFE.open.endsWith(":add"), isG = kind==="grower", name = isG ? n.g : n.f;
+  if (!add && (!name || name===NONE)) return "";
+  const x = add ? null : gfAffects(kind, n);
+  return `<div class="casc-edit" id="gfPanel" data-mode="${GFE.open}">
+    <div class="casc-er"><input id="gfName" autocomplete="off" aria-label="${add?"New "+kind+" name":"Rename "+kind}" placeholder="${add?(isG?"New grower, e.g. Fink Farms":"New farm in "+esc(n.g)):""}" value="${add?"":esc(name)}"><button type="button" class="btn sm" id="gfSave">${add?"Add":"Save"}</button><button type="button" class="btn alt casc-ib sm" id="gfCancel" aria-label="Close" title="Close">✕</button></div>
+    ${add?"":`<div class="casc-del"><span class="tiny muted">Has ${x.txt}. Renaming updates ${isG?"its farms, fields":"its fields"} and those records.</span><button type="button" class="btn danger sm" id="gfDel" title="Delete ${kind}">🗑 Delete</button></div>`}</div>`;
 }
-// ✎ Edit grower / farm: rename (carries to farms, fields and spray records) and Delete
-function gfEditDlg(kind, g, f){
-  const isG = kind==="grower", name = isG ? g : f, A = GF.affected(g, isG ? null : f), farms = isG ? GF.farms(g).length : 0;
-  const what = [isG ? farms+" farm"+(farms===1?"":"s") : "", A.fields.length+" field"+(A.fields.length===1?"":"s"), A.recs.length+" spray record"+(A.recs.length===1?"":"s")].filter(Boolean).join(", ");
-  openDlg("✎ Edit "+(isG?"grower":"farm"), `<label class="f" for="gfName">${isG?"Grower":"Farm"} name</label><input id="gfName" autocomplete="off" value="${esc(name)}">
-    <p class="tiny muted" style="margin:6px 0 0">${isG?"Has":"In "+esc(g)+" · has"} ${what}. Renaming updates ${isG?"its farms, fields":"its fields"} and the ${isG?"grower":"farm"} on those spray records.</p>
-    <button class="btn block big" id="gfSave" style="margin-top:12px">Save name</button>
-    <hr style="margin:16px 0;border:0;border-top:1px solid var(--line)">
-    <button class="btn danger block big" id="gfDel">🗑 Delete ${isG?"grower":"farm"}</button>
-    <p class="tiny muted" style="margin:6px 0 0">Deletes ${isG?"its farms and fields":"its fields"}. Spray records are never deleted — they move to Unassigned and stay in the search.</p>`);
-  $("gfSave").onclick = ()=>{ const v = $("gfName").value.trim(); if (!v){ toast("Enter a name"); return; } if (v===name){ closeDlg(); return; }
+function bindGfPanel(n){
+  const [kind, mode] = GFE.open.split(":"), isG = kind==="grower", g = n.g, f = n.f;
+  const done = (nav, msg)=>{ GFE.open = null; if (nav) NAV.set(nav); renderLog(); if (msg) toast(msg); };
+  $("gfCancel").onclick = ()=>{ GFE.open = null; renderFields(); };
+  const save = ()=>{ const v = $("gfName").value.trim(); if (!v){ toast("Enter a name"); $("gfName").focus(); return; }
+    if (mode==="add"){
+      if (isG){ const ex = GF.grower(v); GF.ensure(ex ? ex.name : v); done({g:ex ? ex.name : v, f:"", id:""}, ex ? "Grower already exists — selected" : "Grower added"); }
+      else { const ex = GF.farms(g).find(x=>lc(x)===lc(v)); GF.ensure(g, ex || v); done({g, f:ex || v, id:""}, ex ? "Farm already exists — selected" : "Farm added"); }
+      return; }
+    const name = isG ? g : f; if (v===name){ done(); return; }
     const exists = isG ? GF.grower(v) && lc(v)!==lc(name) : GF.farms(g).some(x=>lc(x)===lc(v)) && lc(v)!==lc(name);
     if (exists && !confirm("“"+v+"” already exists. Merge “"+name+"” into it?")) return;
     const to = isG ? GF.renameGrower(g, v) : GF.renameFarm(g, f, v); if (!to) return;
-    const cur = NAV.get(); NAV.set(isG ? {g:to, f:cur.f, id:cur.id} : {g, f:to, id:cur.id});
-    closeDlg(); renderLog(); toast((isG?"Grower":"Farm")+" renamed"); };
-  $("gfDel").onclick = ()=>{
-    if (!confirm("Delete "+(isG?"grower":"farm")+" “"+name+"”?\n\nThis removes "+(isG?farms+" farm"+(farms===1?"":"s")+" and ":"")+A.fields.length+" saved field"+(A.fields.length===1?"":"s")+".\n"+A.recs.length+" spray record"+(A.recs.length===1?"":"s")+" will NOT be deleted — they move to Unassigned and stay searchable.")) return;
+    const cur = NAV.get(); done(isG ? {g:to, f:cur.f, id:cur.id} : {g, f:to, id:cur.id}, (isG?"Grower":"Farm")+" renamed"); };
+  $("gfSave").onclick = save;
+  $("gfName").onkeydown = e=>{ if (e.key==="Enter"){ e.preventDefault(); save(); } else if (e.key==="Escape"){ GFE.open = null; renderFields(); } };
+  if ($("gfDel")) $("gfDel").onclick = ()=>{ const name = isG ? g : f, x = gfAffects(kind, n);
+    if (!confirm("Delete "+kind+" “"+name+"”?\n\nThis removes "+(isG?x.farms+" farm"+(x.farms===1?"":"s")+" and ":"")+x.A.fields.length+" saved field"+(x.A.fields.length===1?"":"s")+".\n"+x.A.recs.length+" spray record"+(x.A.recs.length===1?"":"s")+" will NOT be deleted — they move to Unassigned and stay searchable.")) return;
     if (isG) GF.deleteGrower(g); else GF.deleteFarm(g, f);
-    NAV.set(isG ? {g:"", f:"", id:""} : {g, f:"", id:""}); closeDlg(); renderLog(); toast((isG?"Grower":"Farm")+" deleted"); };
+    done(isG ? {g:"", f:"", id:""} : {g, f:"", id:""}, (isG?"Grower":"Farm")+" deleted"); };
 }
-TM.gfNameDlg = gfNameDlg; TM.gfEditDlg = gfEditDlg;
+TM.gfEdit = { open:k=>{ GFE.open = k; renderFields(); }, state:()=>GFE.open };
 
 function logAtField(f){ const r = blankLog(); r.field = f.name; if (f.grower || f.farm){ r.grower = f.grower||""; r.farm = f.farm||""; } r.loc = {lat:f.lat, lon:f.lon, boundary:clone(f.boundary||[]), bAcres:f.acres||"", fieldId:f.id}; if (!r.acres && f.acres) r.acres = +(+f.acres).toFixed(2); if(!beginLog(r))return; $("logFormCard").scrollIntoView({behavior:"smooth"}); }
 // ＋ Add field / ✏️ edit a field: name, grower › farm, map pin and optional drawn boundary (or import a shapefile instead)
@@ -3231,8 +3242,8 @@ function fieldDlg(f){
     ${sh?`<button class="btn block" id="fdNdvi" style="margin-top:8px">🛰 NDVI satellite images${TM.fields2.ndvi.hasNew(f)?" · New":""}</button>`:`<p class="tiny muted" style="margin:8px 0 0">Add a boundary (✏️ Edit field › Draw boundary, or import a shapefile) to see NDVI images.</p>`}
     <table class="kv" style="margin-top:8px">${f.src&&f.src.type==="shapefile"?`<tr><th>Boundary</th><td>Shapefile${f.src.file?" “"+esc(f.src.file)+"”":""}${f.shape?" · "+f.shape.length+" part"+(f.shape.length===1?"":"s"):""}<br><span class="tiny muted">${esc(f.src.crs||"")}</span></td></tr>`:""}${sp.length?`<tr><th>Recent sprays</th><td>${sp.map(r=>`${esc(dtTxt(r.dt))}${r.mixName?" · "+esc(r.mixName):""}`).join("<br>")}</td></tr>`:""}<tr><th>Location</th><td>${locSummary({lat:f.lat, lon:f.lon, boundary:f.boundary, bAcres:f.acres})}</td></tr></table>
     <div style="margin-top:10px">${gfPickerHtml("fd")}</div><p class="tiny muted" id="fdGFMsg" style="margin:4px 0 0" aria-live="polite"></p>
-    <div class="grid g2" style="margin-top:12px"><button class="btn" id="fdLog">📝 Log a spray here</button><button class="btn alt" id="fdEdit">✏️ Rename, map &amp; boundary</button><button class="btn danger" id="fdDel" style="grid-column:1/-1">🗑 Delete field</button></div>
-    <p class="tiny muted" style="margin:8px 0 0">Deleting a saved field never deletes its spray records — they move to Unassigned and stay in the search.</p>`);
+    <div class="fld-acts" style="margin-top:10px"><button class="btn sm" id="fdLog">📝 Log spray</button><button class="btn alt sm" id="fdEdit">✏️ Rename, map &amp; boundary</button></div>
+    <div class="casc-del" style="margin-top:8px"><span class="tiny muted">Spray records are never deleted — they move to Unassigned.</span><button class="btn danger sm" id="fdDel">🗑 Delete</button></div>`);
   miniMap("fdMap", {lat:f.lat, lon:f.lon, boundary:f.boundary, shape:f.shape});
   if ($("fdNdvi")) $("fdNdvi").onclick = ()=>TM.ndviDlg(f);
   $("fdLog").onclick = ()=>{ closeDlg(); logAtField(f); };
