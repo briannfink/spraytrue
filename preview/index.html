@@ -1226,7 +1226,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
    3. Storage (localStorage)
    4. UI: Mix, Order/Jar test, Lookup (EPA), Saved, Print
    ===================================================================== */
-const APP_VERSION = "2.17.0";
+const APP_VERSION = "2.17.1";
 const TM = window.TM = {};
 
 /* ---------- 1. Constants ---------- */
@@ -1494,13 +1494,16 @@ function fillUnitSelects(){
   const au = [["ac","Acres"],["k ft²","×1000 ft²"],["ha","Hectares"]];
   $("areaUnit").innerHTML = au.map(([v,l])=>`<option value="${v}"${v===S.mix.area.u?" selected":""}>${l}</option>`).join("");
 }
-function loadMixIntoForm(){
+// v2.17.1: loading a mix keeps the current Mix view (editor stays editor, Tank Amounts stays Tank Amounts, refreshed).
+// Only app start passes 'auto', which keeps the old start-up choice (clean saved mix opens on Tank Amounts).
+// Root cause of the bug: this always re-picked the view, so any clean saved mix jumped to Tank Amounts.
+function loadMixIntoForm(mode){
   if(S.mix.id)RECORD_SYNC.noteEdit('mixes',S.mix.id,true);
   $("mixName").value = S.mix.name||"";
   $("tankSize").value = S.mix.tank.v; $("carrierRate").value = S.mix.carrier.v; $("area").value = S.mix.area.v;
   fillUnitSelects(); renderFertBox(); renderProducts(); renderAll();
   loadingChoice='perFull';
-  setMixMode((S.mix.id || S.mix.products.length) && TM.calc(S.mix).ok && !mixDraftDirty() ? 'load' : 'edit');
+  setMixMode(mode==='auto' ? ((S.mix.id || S.mix.products.length) && TM.calc(S.mix).ok && !mixDraftDirty() ? 'load' : 'edit') : mixMode);
 }
 function renderHeader(){
   $("hdrName").textContent = S.mix.name || "Untitled mix";
@@ -6032,7 +6035,7 @@ function init(){
   // v2.8: warm the WSDA index in the background (no CORS; local JSON)
   if (typeof wsdaLoad==="function") wsdaLoad().catch(()=>{});
   bindMixInputs(); bindSaved(); bindLibrary(); bindSettings(); bindPrint();
-  loadMixIntoForm(); renderSaved(); renderLibrary(); renderCal(); renderLogView();
+  loadMixIntoForm('auto'); renderSaved(); renderLibrary(); renderCal(); renderLogView();
   initFieldReliability(); TM.syncInit();
   setTimeout(()=>{ try { TM.fields2.ndvi.background(); } catch(e){} }, 6000);   // v2.17: light check for new NDVI dates on fields already using NDVI
   window.addEventListener("afterprint", ()=>{ TM.printMode = null; });
