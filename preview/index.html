@@ -301,6 +301,8 @@ details.fld[open]>summary{border-bottom:1px solid var(--line)}
 .fld-nm{font-weight:800;font-size:1.05em}.fld-sub{flex-basis:100%}
 .fld-body{padding:10px 12px 4px}
 .fld-acts{margin-bottom:10px}
+.fld-gh{font-size:.95em;margin:14px 2px 6px;display:flex;gap:8px;align-items:baseline}.fld-gh:first-child{margin-top:0}
+.fi-all{border:2px dashed var(--line);border-radius:12px;padding:8px 10px}
 .grid.g3{grid-template-columns:repeat(3,1fr)}@media (max-width:420px){.grid.g3{grid-template-columns:1fr 1fr}.grid.g3>:last-child{grid-column:1/-1}}
 #mixBackEdit{margin-bottom:12px}
 </style>
@@ -2936,6 +2938,46 @@ function locSummary(loc, print){
     (b ? `<br>${print?"":'<span class="small">'}Boundary: ${fmt(+loc.bAcres||GEO.acres(loc.boundary),1)} ac mapped, ${loc.boundary.length} points${print?"":"</span>"}` : "");
 }
 // v2.17: Fields tab is field-first. Each field expands to its spray records (newest first); unmatched records sit in "Unassigned".
+/* v2.17 grower / farm picker: choose from growers and farms already used on spray records or saved fields, or add a new one inline.
+   Farms list only the selected grower's farms (all farms when no grower is chosen). Values stay plain strings on the record. */
+const GF_NEW = "\u0001new";
+function farmsOf(grower){ const all = [...S.log, ...S.fields].filter(x=>x && String(x.farm||"").trim());
+  return uniqSorted((grower ? all.filter(x=>lc(x.grower)===lc(grower)) : all).map(x=>String(x.farm).trim())); }
+function gfPickerHtml(p){
+  return `<div class="grid g2 gfp" id="${p}GF">
+    <div><label class="f" for="${p}Grower">Grower</label><select id="${p}Grower"></select><input id="${p}GrowerNew" placeholder="New grower name" autocomplete="off" aria-label="New grower name" hidden style="margin-top:6px"></div>
+    <div><label class="f" for="${p}Farm">Farm</label><select id="${p}Farm"></select><input id="${p}FarmNew" placeholder="New farm name" autocomplete="off" aria-label="New farm name" hidden style="margin-top:6px"></div></div>`; }
+// onCommit fires when a choice is made (select change, or a typed new name is committed with change/Enter)
+function bindGfPicker(p, g, f, onCommit){
+  const gs = $(p+"Grower"), fs = $(p+"Farm"), gn = $(p+"GrowerNew"), fn = $(p+"FarmNew");
+  const opts = (names, cur, none, add)=>{ const L = names.slice(); cur = String(cur||"").trim(); if (cur && !L.some(x=>lc(x)===lc(cur))) L.unshift(cur);
+    return `<option value="">${none}</option>`+L.map(x=>`<option value="${esc(x)}">${esc(x)}</option>`).join("")+`<option value="${GF_NEW}">${add}</option>`; };
+  const pick = (sel, cur)=>{ const o = [...sel.options].find(x=>x.value && x.value!==GF_NEW && lc(x.value)===lc(String(cur||"").trim())); sel.value = o ? o.value : ""; };
+  const grower = ()=> gs.value===GF_NEW ? gn.value.trim() : gs.value;
+  const farm = ()=> fs.value===GF_NEW ? fn.value.trim() : fs.value;
+  const drawFarms = cur=>{ const wasNew = fs.value===GF_NEW; fs.innerHTML = opts(farmsOf(grower()), cur, "— No farm —", "＋ New farm…");
+    if (wasNew) fs.value = GF_NEW; else pick(fs, cur); fn.hidden = fs.value!==GF_NEW; };
+  // after a grower change keep the chosen farm only if it belongs to that grower
+  const keepFarm = ()=>{ const v = fs.value; return v && v!==GF_NEW && farmsOf(grower()).some(x=>lc(x)===lc(v)) ? v : ""; };
+  const commit = ()=>{ if (onCommit) onCommit(api.get()); };
+  const set = (g2, f2)=>{ gs.innerHTML = opts(growerNames(), g2, "— No grower —", "＋ New grower…"); pick(gs, g2); gn.hidden = true; gn.value = ""; fs.value = ""; drawFarms(f2); };
+  const api = { get:()=>({grower:grower(), farm:farm()}), set:(g2, f2)=>{ set(g2, f2); } };
+  set(g, f);
+  gs.onchange = ()=>{ gn.hidden = gs.value!==GF_NEW; drawFarms(keepFarm());
+    if (!gn.hidden){ gn.focus(); return; } commit(); };
+  gn.oninput = ()=>{ drawFarms(keepFarm()); };
+  gn.onchange = commit;
+  fs.onchange = ()=>{ fn.hidden = fs.value!==GF_NEW; if (!fn.hidden){ fn.focus(); return; }
+    if (fs.value && !grower()){ const owners = uniqSorted([...S.log, ...S.fields].filter(x=>x && lc(x.farm)===lc(fs.value) && String(x.grower||"").trim()).map(x=>String(x.grower).trim()));
+      if (owners.length===1){ const fv = fs.value; pick(gs, owners[0]); drawFarms(fv); } }
+    commit(); };
+  fn.onchange = commit;
+  [gn, fn].forEach(i=>i.onkeydown = e=>{ if (e.key==="Enter"){ e.preventDefault(); i.dispatchEvent(new Event("change")); } });
+  return api;
+}
+TM.gfPickerHtml = gfPickerHtml; TM.bindGfPicker = bindGfPicker; TM.farmsOf = farmsOf;
+// grower / farm preselected from the shared Fields filter, if one is chosen
+function gfFromFilter(){ const g = LOGF.gf; if (!g) return {grower:"", farm:""}; const [k, gr, fa] = g.split("\u0001"); return {grower:gr||"", farm:k==="f" ? fa||"" : ""}; }
 const FLD = { open:new Set() };
 function logsByField(){
   const byId = new Map(S.fields.map(f=>[f.id, []])), byName = new Map(S.fields.map(f=>[f.name.trim().toLowerCase(), f.id])), none = [];
@@ -2947,16 +2989,32 @@ function logsByField(){
 TM.logsByField = logsByField;
 function renderFields(){
   const el = $("fieldList"); if (!el) return;
-  $("fieldCount").textContent = S.fields.length;
+  $("fieldCount").textContent = S.fields.length; drawGfFilter();
   const g = logsByField(), N = TM.fields2.ndvi;
   const group = (key, head, logs, body) => `<details class="fld" data-key="${esc(key)}"${FLD.open.has(key)?" open":""}><summary>${head}</summary><div class="fld-body">${body||""}
       ${logs.length ? logs.map(TM.logRowHtml).join("") : `<div class="empty small">No spray records${key==="__none"?"":" for this field yet"}.</div>`}</div></details>`;
-  el.innerHTML = (S.fields.length ? S.fields.map(f=>{ const logs = g.byId.get(f.id)||[], sh = TM.fields2.fieldShape(f), ac = sh ? (+f.acres || GEO.acres(f.boundary)) : 0;
+  const fieldHtml = f=>{ const logs = g.byId.get(f.id)||[], sh = TM.fields2.fieldShape(f), ac = sh ? (+f.acres || GEO.acres(f.boundary)) : 0;
       return group(f.id, `<span class="fld-nm">📍 ${esc(f.name)}</span>${N.hasNew(f)?' <span class="badge">🛰 New image</span>':""}
-        <span class="tiny muted fld-sub">${f.grower||f.farm?esc([f.grower,f.farm].filter(Boolean).join(" › "))+" · ":""}${sh?fmt(ac,1)+" ac":"no boundary"}${f.src&&f.src.type==="shapefile"?" · shapefile":""} · ${logs.length} spray record${logs.length===1?"":"s"}</span>`, logs,
-        `<div class="grid g3 fld-acts" data-id="${f.id}"><button class="btn alt sm" data-act="open">🗺 Map &amp; details</button>${sh?`<button class="btn alt sm" data-act="ndvi">🛰 NDVI</button>`:""}<button class="btn sm" data-act="log">📝 Log spray</button></div>`); }).join("")
-    : `<div class="empty small">No saved fields yet. Import a shapefile, tap ＋ Add field, or keep “Save as a field” checked when you log a spray.</div>`)
-    + (g.none.length ? group("__none", `<span class="fld-nm">📂 Unassigned spray records</span><span class="tiny muted fld-sub">${g.none.length} record${g.none.length===1?"":"s"} without a saved field</span>`, g.none) : "");
+        <span class="tiny muted fld-sub">${f.grower||f.farm?esc(gfTxt(f))+" · ":""}${sh?fmt(ac,1)+" ac":"no boundary"}${f.src&&f.src.type==="shapefile"?" · shapefile":""} · ${logs.length} spray record${logs.length===1?"":"s"}</span>`, logs,
+        `<div class="grid g3 fld-acts" data-id="${f.id}"><button class="btn alt sm" data-act="open">🗺 Map &amp; details</button>${sh?`<button class="btn alt sm" data-act="ndvi">🛰 NDVI</button>`:""}<button class="btn sm" data-act="log">📝 Log spray</button></div>`); };
+  const shown = S.fields.filter(gfMatch);
+  const anyGF = S.fields.some(f=>String(f.grower||"").trim() || String(f.farm||"").trim());
+  let html = "";
+  if (!S.fields.length) html = `<div class="empty small">No saved fields yet. Import a shapefile, tap ＋ Add field, or keep “Save as a field” checked when you log a spray.</div>`;
+  else if (!shown.length) html = `<div class="empty small">No saved fields for this grower / farm.</div>`;
+  else if (!anyGF) html = shown.map(fieldHtml).join("");
+  else {   // grouped under Grower › Farm headings; fields without either come last
+    const key = f=>[String(f.grower||"").trim(), String(f.farm||"").trim()];
+    const sorted = shown.slice().sort((a,b)=>{ const [ag, af] = key(a), [bg, bf] = key(b);
+      return (!ag&&!af) - (!bg&&!bf) || ag.localeCompare(bg, undefined, {sensitivity:"base"}) || af.localeCompare(bf, undefined, {sensitivity:"base"}) || a.name.localeCompare(b.name); });
+    let last = null;
+    sorted.forEach(f=>{ const [gr, fa] = key(f), k = lc(gr)+"\u0001"+lc(fa);
+      if (k!==last){ last = k; const n = sorted.filter(x=>{ const [g2, f2] = key(x); return lc(g2)+"\u0001"+lc(f2)===k; }).length;
+        html += `<h3 class="fld-gh" data-gf="${esc(gr+"\u0001"+fa)}">${gr||fa ? "👤 "+esc(gfTxt({grower:gr, farm:fa})) : "No grower / farm"} <span class="tiny muted">${n} field${n===1?"":"s"}</span></h3>`; }
+      html += fieldHtml(f); });
+  }
+  const none = g.none.filter(gfMatch);
+  el.innerHTML = html + (none.length ? group("__none", `<span class="fld-nm">📂 Unassigned spray records</span><span class="tiny muted fld-sub">${none.length} record${none.length===1?"":"s"} without a saved field</span>`, none) : "");
   el.querySelectorAll("details.fld").forEach(d=>d.addEventListener("toggle", ()=>{ d.open ? FLD.open.add(d.dataset.key) : FLD.open.delete(d.dataset.key); }));
   el.querySelectorAll(".fld-acts [data-act]").forEach(b=>b.onclick=()=>{ const f = S.fields.find(x=>x.id===b.closest(".fld-acts").dataset.id); if (!f) return;
     if (b.dataset.act==="open") fieldDlg(f); else if (b.dataset.act==="ndvi") TM.ndviDlg(f); else logAtField(f); });
@@ -2967,11 +3025,13 @@ function logAtField(f){ const r = blankLog(); r.field = f.name; if (f.grower || 
 function addFieldDlg(){
   const st = { lat:null, lon:null, boundary:[] };
   openDlg("＋ Add field", `<label class="f" for="afName">Field name</label><input id="afName" autocomplete="off" placeholder="e.g. North pivot">
+    <div style="margin-top:8px">${gfPickerHtml("af")}</div>
     <div class="fmap sm" id="afMap" style="margin-top:8px"></div>
     <div class="grid g2" style="margin-top:8px"><button type="button" class="btn alt sm" id="afGeo">📍 My location</button><button type="button" class="btn alt sm" id="afDraw">✏️ Draw boundary</button></div>
     <p class="tiny muted" id="afHint" style="margin:6px 0 0">Tap the map to drop the field pin. Draw the boundary corner by corner for acres and NDVI.</p>
     <button class="btn block" id="afSave" style="margin-top:10px">Save field</button>`);
   const hint = () => { $("afHint").textContent = (GEO.valid(st.lat, st.lon) ? "Pin: "+GEO.fmt(st.lat, st.lon)+". " : "Tap the map to drop the field pin. ") + (st.boundary.length>=3 ? "Boundary: "+fmt(GEO.acres(st.boundary),1)+" ac." : "Draw the boundary corner by corner for acres and NDVI."); };
+  const pre = gfFromFilter(), GFP = bindGfPicker("af", pre.grower, pre.farm);
   const W = makeMap($("afMap"), { onPin:(lat, lon)=>{ st.lat = lat; st.lon = lon; hint(); }, onBoundary:pts=>{ st.boundary = pts; hint(); } });
   if (W){ TM.dlgCleanup = ()=>W.destroy(); W.later(()=>W.map.invalidateSize(), 80); }
   $("afDraw").onclick = ()=>{ if (!W){ toast("The map isn't available"); return; } W.setDrawing(!W.drawing); $("afDraw").textContent = W.drawing ? "✓ Done drawing" : "✏️ Edit boundary"; if (!W.drawing && st.boundary.length>=3) W.fit(); };
@@ -2981,7 +3041,8 @@ function addFieldDlg(){
     if (st.boundary.length>=3 && !GEO.valid(st.lat, st.lon)){ const c = GEO.center(st.boundary); st.lat = c.lat; st.lon = c.lon; }
     if (!GEO.valid(st.lat, st.lon)){ toast("Tap the map to place the field first"); return; }
     if (S.fields.some(x=>x.name.toLowerCase()===name.toLowerCase()) && !confirm("A field named “"+name+"” exists. Replace its location and boundary?")) return;
-    const f = upsertField(name, {lat:st.lat, lon:st.lon, boundary:st.boundary.length>=3?st.boundary:[], bAcres:st.boundary.length>=3?+GEO.acres(st.boundary).toFixed(2):""});
+    const gf = GFP.get();
+    const f = upsertField(name, {lat:st.lat, lon:st.lon, boundary:st.boundary.length>=3?st.boundary:[], bAcres:st.boundary.length>=3?+GEO.acres(st.boundary).toFixed(2):""}, gf);
     closeDlg(); FLD.open.add(f.id); renderFields(); toast("Field saved"); };
 }
 TM.addFieldDlg = addFieldDlg;
@@ -3003,14 +3064,15 @@ function fieldDlg(f){
   const sh = TM.fields2.fieldShape(f), sp = fieldSprays(f);
   openDlg("📍 "+f.name, `<div class="fmap sm" id="fdMap"></div>
     ${sh?`<button class="btn block" id="fdNdvi" style="margin-top:8px">🛰 NDVI satellite images${TM.fields2.ndvi.hasNew(f)?" · New":""}</button>`:`<p class="tiny muted" style="margin:8px 0 0">Add a boundary (draw it in a spray record or import a shapefile) to see NDVI images.</p>`}
-    <table class="kv" style="margin-top:8px">${f.src&&f.src.type==="shapefile"?`<tr><th>Boundary</th><td>Shapefile${f.src.file?" “"+esc(f.src.file)+"”":""}${f.shape?" · "+f.shape.length+" part"+(f.shape.length===1?"":"s"):""}<br><span class="tiny muted">${esc(f.src.crs||"")}</span></td></tr>`:""}${sp.length?`<tr><th>Recent sprays</th><td>${sp.map(r=>`${esc(dtTxt(r.dt))}${r.mixName?" · "+esc(r.mixName):""}`).join("<br>")}</td></tr>`:""}${f.grower?`<tr><th>Grower</th><td>${esc(f.grower)}</td></tr>`:""}${f.farm?`<tr><th>Farm</th><td>${esc(f.farm)}</td></tr>`:""}<tr><th>Location</th><td>${locSummary({lat:f.lat, lon:f.lon, boundary:f.boundary, bAcres:f.acres})}</td></tr></table>
-    <div class="grid g2" style="margin-top:12px"><button class="btn" id="fdLog">📝 Log a spray here</button><button class="btn alt" id="fdRen">Rename</button><button class="btn alt" id="fdGF" style="grid-column:1/-1">Grower / farm…</button><button class="btn danger" id="fdDel" style="grid-column:1/-1">Delete saved field</button></div>
+    <table class="kv" style="margin-top:8px">${f.src&&f.src.type==="shapefile"?`<tr><th>Boundary</th><td>Shapefile${f.src.file?" “"+esc(f.src.file)+"”":""}${f.shape?" · "+f.shape.length+" part"+(f.shape.length===1?"":"s"):""}<br><span class="tiny muted">${esc(f.src.crs||"")}</span></td></tr>`:""}${sp.length?`<tr><th>Recent sprays</th><td>${sp.map(r=>`${esc(dtTxt(r.dt))}${r.mixName?" · "+esc(r.mixName):""}`).join("<br>")}</td></tr>`:""}<tr><th>Location</th><td>${locSummary({lat:f.lat, lon:f.lon, boundary:f.boundary, bAcres:f.acres})}</td></tr></table>
+    <div style="margin-top:10px">${gfPickerHtml("fd")}</div><p class="tiny muted" id="fdGFMsg" style="margin:4px 0 0" aria-live="polite"></p>
+    <div class="grid g2" style="margin-top:12px"><button class="btn" id="fdLog">📝 Log a spray here</button><button class="btn alt" id="fdRen">Rename</button><button class="btn danger" id="fdDel" style="grid-column:1/-1">Delete saved field</button></div>
     <p class="tiny muted" style="margin:8px 0 0">Deleting a saved field doesn't change spray records that used it.</p>`);
   miniMap("fdMap", {lat:f.lat, lon:f.lon, boundary:f.boundary, shape:f.shape});
   if ($("fdNdvi")) $("fdNdvi").onclick = ()=>TM.ndviDlg(f);
   $("fdLog").onclick = ()=>{ closeDlg(); logAtField(f); };
-  $("fdGF").onclick = ()=>{ const g = prompt("Grower for “"+f.name+"”:", f.grower||""); if (g==null) return; const fa = prompt("Farm for “"+f.name+"”:", f.farm||""); if (fa==null) return;
-    f.grower = g.trim(); f.farm = fa.trim(); f.updated = Date.now(); persist("fields"); renderFields(); closeDlg(); fieldDlg(f); };
+  bindGfPicker("fd", f.grower, f.farm, gf=>{ if ((f.grower||"")===gf.grower && (f.farm||"")===gf.farm) return;
+    f.grower = gf.grower; f.farm = gf.farm; f.updated = Date.now(); persist("fields"); renderFields(); $("fdGFMsg").textContent = "✓ Saved"+(gf.grower||gf.farm ? " · "+gfTxt(gf) : " · no grower / farm"); });
   $("fdRen").onclick = ()=>{ const n = prompt("Rename field:", f.name); if (n && n.trim()){ f.name = n.trim(); f.updated = Date.now(); persist("fields"); renderFields(); } closeDlg(); };
   $("fdDel").onclick = ()=>{ if (!confirm("Delete saved field “"+f.name+"”?")) return; S.fields = S.fields.filter(x=>x!==f); persist("fields"); closeDlg(); renderFields(); toast("Field deleted"); };
 }
@@ -5094,15 +5156,20 @@ async function importShapefiles(fileList){
   const fs = res.features.map(f=>Object.assign({on:true}, f));
   openDlg("Import field boundaries", `<p class="small" style="margin:0 0 6px">${fs.length} boundar${fs.length===1?"y":"ies"} · ${esc(res.crs)}</p>${res.warn?`<p class="warn small" role="alert">⚠ ${esc(res.warn)}</p>`:""}
     <div class="fmap sm" id="fiMap"></div>
+    ${fs.length>1?`<div class="fi-all" style="margin-top:8px"><p class="small" style="margin:0 0 4px"><b>Grower / farm for all</b></p>${gfPickerHtml("fiAll")}</div>`:""}
     <div id="fiList" style="margin-top:8px">${fs.map((f, i)=>{ const ex = S.fields.find(x=>x.name.toLowerCase()===f.name.toLowerCase());
-      return `<div class="fi-row"><input type="checkbox" id="fiOn${i}" checked aria-label="Import"><div style="flex:1;min-width:0"><input id="fiName${i}" value="${esc(f.name)}" aria-label="Field name"><div class="tiny muted">${fmt(f.acres,1)} ac · ${f.shape.length} part${f.shape.length===1?"":"s"}${f.shape.some(p=>p.length>1)?" · has holes":""}${f.tol?" · simplified "+f.tol+" m":""}<span id="fiEx${i}">${ex?" · updates the saved field with this name":""}</span></div></div></div>`; }).join("")}</div>
+      return `<div class="fi-row"><input type="checkbox" id="fiOn${i}" checked aria-label="Import"><div style="flex:1;min-width:0"><input id="fiName${i}" value="${esc(f.name)}" aria-label="Field name"><div class="tiny muted">${fmt(f.acres,1)} ac · ${f.shape.length} part${f.shape.length===1?"":"s"}${f.shape.some(p=>p.length>1)?" · has holes":""}${f.tol?" · simplified "+f.tol+" m":""}<span id="fiEx${i}">${ex?" · updates the saved field with this name":""}</span></div><div style="margin-top:6px">${gfPickerHtml("fi"+i)}</div></div></div>`; }).join("")}</div>
     <button class="btn block" id="fiSave" style="margin-top:10px">Save fields</button>
     <p class="tiny muted" style="margin:8px 0 0">Saved fields sync to your account when you're signed in. Large boundaries are simplified to keep syncing light (acres come from the original shape).</p>`);
   const W = makeMap($("fiMap"), {readOnly:true});
   if (W){ const g = L.featureGroup(fs.map(f=>L.polygon(f.shape, {color:"#ffd34d", weight:3, fillOpacity:.15}))).addTo(W.map); TM.dlgCleanup = ()=>W.destroy(); W.later(()=>{ W.map.invalidateSize(); W.map.fitBounds(g.getBounds(), {padding:[16,16], maxZoom:17}); }, 80); }
+  // grower / farm per field: from the shapefile's attributes, else what that saved field already has, else the Fields filter
+  const pre = gfFromFilter(), P = fs.map((f, i)=>{ const ex = S.fields.find(x=>x.name.toLowerCase()===f.name.toLowerCase());
+    return bindGfPicker("fi"+i, f.grower || (ex&&ex.grower) || pre.grower, f.farm || (ex&&ex.farm) || (f.grower ? "" : pre.farm)); });
+  if ($("fiAllGrower")) bindGfPicker("fiAll", "", "", gf=>{ P.forEach(x=>x.set(gf.grower, gf.farm)); });
   fs.forEach((f, i)=>{ $("fiName"+i).oninput = e=>{ const ex = S.fields.find(x=>x.name.toLowerCase()===e.target.value.trim().toLowerCase()); $("fiEx"+i).textContent = ex ? " · updates the saved field with this name" : ""; }; });
   $("fiSave").onclick = ()=>{ let n = 0;
-    fs.forEach((f, i)=>{ if (!$("fiOn"+i).checked) return; const name = $("fiName"+i).value.trim(); if (!name) return; FX.saveImported(Object.assign({}, f, {name})); n++; });
+    fs.forEach((f, i)=>{ if (!$("fiOn"+i).checked) return; const name = $("fiName"+i).value.trim(); if (!name) return; FX.saveImported(Object.assign({}, f, {name}, P[i].get())); n++; });
     if (!n){ toast("Nothing selected"); return; }
     S.fields.sort((a,b)=>a.name.localeCompare(b.name)); persist("fields"); closeDlg(); renderFields(); toast(n+" field"+(n===1?"":"s")+" saved"); };
 }
@@ -5378,6 +5445,7 @@ function renderLogView(){
     <div class="grid g2" style="margin-bottom:6px"><button type="button" class="btn alt" id="fieldImport">⬆ Import shapefile</button><button type="button" class="btn alt" id="fieldAdd">＋ Add field</button></div>
     <input type="file" id="fieldFile" multiple hidden>
     <p class="tiny muted" style="margin:0 0 10px">Tap a field to see its spray records, map and 🛰 NDVI. Shapefiles: a .zip, or the .shp, .dbf and .prj files together.</p>
+    <select id="fieldGF" aria-label="Show fields for a grower or farm" style="margin-bottom:10px" hidden></select>
     <div id="fieldList"></div>
   </div>
   <div class="card" id="logFormCard"></div>
@@ -5402,6 +5470,7 @@ function renderLogView(){
   $("wxLocForm").onsubmit = e=>{ e.preventDefault(); geocode($("wxLocQ").value); };
   $("logQ").oninput = e=>{ LOGF.q = e.target.value; renderLog(); };
   $("logGF").onchange = e=>{ LOGF.gf = e.target.value; renderLog(); };
+  $("fieldGF").onchange = e=>{ LOGF.gf = e.target.value; renderLog(); };
   $("logCsv").onclick = exportCsv;
   $("logPrintAll").onclick = ()=>printLog(filteredLog());
   renderWx(); renderLogForm(); renderLog(); renderFields();
@@ -5619,17 +5688,19 @@ function renderLogForm(){
 function gfMatch(r){ const g = LOGF.gf; if (!g) return true; const [k, gr, fa] = g.split("\u0001");
   return lc(r.grower)===lc(gr) && (k==="g" || lc(r.farm)===lc(fa)); }
 function drawGfFilter(){
-  const el = $("logGF"); if (!el) return;
-  const pairs = new Map(); S.log.forEach(r=>{ const g = String(r.grower||"").trim(); if (!g) return; const k = lc(g); if (!pairs.has(k)) pairs.set(k, {g, farms:new Map()}); const f = String(r.farm||"").trim(); if (f && !pairs.get(k).farms.has(lc(f))) pairs.get(k).farms.set(lc(f), f); });
-  if (!pairs.size){ el.hidden = true; if (LOGF.gf){ LOGF.gf = ""; } return; }
+  // v2.17: growers/farms from spray records AND saved fields; one shared filter shown on the Fields list and the record search
+  const els = ["logGF","fieldGF"].map($).filter(Boolean); if (!els.length) return;
+  const pairs = new Map(); [...S.log, ...S.fields].forEach(r=>{ const g = String(r&&r.grower||"").trim(); if (!g) return; const k = lc(g); if (!pairs.has(k)) pairs.set(k, {g, farms:new Map()}); const f = String(r.farm||"").trim(); if (f && !pairs.get(k).farms.has(lc(f))) pairs.get(k).farms.set(lc(f), f); });
+  if (!pairs.size){ els.forEach(el=>el.hidden = true); if (LOGF.gf){ LOGF.gf = ""; } return; }
   const G = [...pairs.values()].sort((a,b)=>a.g.localeCompare(b.g));
   const opts = [`<option value="">All growers &amp; farms</option>`]; let found = !LOGF.gf;
   G.forEach(x=>{ const gv = "g\u0001"+x.g; found = found || gv===LOGF.gf;
-    opts.push(`<option value="${esc(gv)}"${gv===LOGF.gf?" selected":""}>${esc(x.g)} (all farms)</option>`);
-    [...x.farms.values()].sort((a,b)=>a.localeCompare(b)).forEach(f=>{ const fv = "f\u0001"+x.g+"\u0001"+f; found = found || fv===LOGF.gf; opts.push(`<option value="${esc(fv)}"${fv===LOGF.gf?" selected":""}>&nbsp;&nbsp;${esc(x.g)} › ${esc(f)}</option>`); }); });
+    opts.push(`<option value="${esc(gv)}">${esc(x.g)} (all farms)</option>`);
+    [...x.farms.values()].sort((a,b)=>a.localeCompare(b)).forEach(f=>{ const fv = "f\u0001"+x.g+"\u0001"+f; found = found || fv===LOGF.gf; opts.push(`<option value="${esc(fv)}">&nbsp;&nbsp;${esc(x.g)} › ${esc(f)}</option>`); }); });
   if (!found) LOGF.gf = "";
-  el.innerHTML = opts.join(""); el.value = LOGF.gf; el.hidden = false;
+  els.forEach(el=>{ el.innerHTML = opts.join(""); el.value = LOGF.gf; el.hidden = false; });
 }
+TM.drawGfFilter = drawGfFilter; TM.gfMatch = r=>gfMatch(r);
 function filteredLog(){
   const q = LOGF.q.toLowerCase().trim();
   return S.log.slice().sort((a,b)=>(b.dt||"").localeCompare(a.dt||"")).filter(gfMatch).filter(r=> !q || [r.grower,r.farm,r.field,r.crop,r.mixName,r.applicator,r.pests,r.notes,r.dt,...(r.products||[]).map(p=>p.name+" "+p.epa)].join(" ").toLowerCase().includes(q));
