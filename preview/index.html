@@ -1162,8 +1162,8 @@ svg.leaflet-image-layer.leaflet-interactive path {
 <nav class="tabs" role="tablist">
   <button role="tab" data-v="mix" aria-selected="true"><span class="ic">🧮</span>Mix</button>
   <button role="tab" data-v="products" aria-selected="false"><span class="ic">📦</span>Products</button>
+  <button role="tab" data-v="log" aria-selected="false"><span class="ic">🗺️</span>Fields</button>
   <button role="tab" data-v="tools" aria-selected="false"><span class="ic">🧰</span>Tools</button>
-  <button role="tab" data-v="log" aria-selected="false"><span class="ic">📝</span>Logs</button>
   <button role="tab" data-v="wx" aria-selected="false"><span class="ic">🌤</span>Weather</button>
   <button role="tab" data-v="set" aria-selected="false" aria-label="Settings"><span class="ic">⚙️</span>Settings</button>
 </nav>
@@ -1721,7 +1721,7 @@ TM.saveToLibrary = saveToLibrary;
 /* ---------- Dialog & tabs ---------- */
 function openDlg(title, html){ if (TM.dlgCleanup){ try { TM.dlgCleanup(); } catch(e){} TM.dlgCleanup = null; } $("dlgT").textContent = title; $("dlgB").innerHTML = html; const d=$("dlg"); if (d.showModal) d.showModal(); else d.setAttribute("open",""); }
 function closeDlg(){ if (TM.dlgCleanup){ try { TM.dlgCleanup(); } catch(e){} TM.dlgCleanup = null; } const d=$("dlg"); if (d.close) d.close(); else d.removeAttribute("open"); }
-// Saved is a Settings sub-page; Sprayer / Order / Lookup live under Tools; Logs is its own tab
+// Saved is a Settings sub-page; Sprayer / Order / Lookup live under Tools; the Fields tab (internal view id "log": spray records + saved fields) is its own tab
 const TAB_OF = { saved:"set", order:"tools", cal:"tools", lookup:"products" };
 let toolsSub = "cal";
 function showTab(v){
