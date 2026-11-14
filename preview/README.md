@@ -1,6 +1,6 @@
-# SprayTrue (v2.17.1 — PREVIEW ONLY; live is v2.17.0)
+# SprayTrue (v2.17.1 — live; published Nov 14, 2026)
 
-## v2.17.1 — Opening a saved mix keeps your view (preview)
+## v2.17.1 — Opening a saved mix keeps your view (live)
 
 - **Fix**: choosing a saved mix (Mix › Saved Mixes dropdown, or Settings › Saved — tap a mix or ⋯ › Open) no longer jumps to Tank Amounts. From the Mix editor you stay on the editor; from Tank Amounts you stay on Tank Amounts, with the amounts recalculated for the new mix. If the chosen mix can't be calculated yet (e.g. no field size), it opens in the editor.
 - Cause: the shared "load a mix into the form" step always re-chose the view and sent any clean, calculable saved mix to Tank Amounts. It now keeps the current view; only app start-up keeps the old choice (a clean saved mix opens on Tank Amounts, as in v2.17.0). A sync refresh no longer flips the view either.
