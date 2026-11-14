@@ -1,6 +1,6 @@
-# SprayTrue (v2.17.0 — PREVIEW ONLY; live is v2.16.0)
+# SprayTrue (v2.17.0 — live; published Nov 13, 2026)
 
-## v2.17.0 — Shapefile field boundaries + NDVI (preview)
+## v2.17.0 — Shapefile field boundaries + NDVI, Grower › Farm › Field, job names, Title Case (live)
 
 - **Fields › Saved fields › ⬆ Import shapefile boundaries**: pick a .zip or the loose .shp/.shx/.dbf/.prj(/.cpg) files. Reprojected in the browser from the .prj: WGS84/NAD83 lat-long, UTM (any zone, NAD83 or WGS84), Transverse Mercator, Lambert Conformal Conic (WA State Plane North/South, US feet or metres), Web Mercator. Lat/long without a .prj is accepted with a note; NAD27 shows a warning. Polygons, multipart polygons and holes; one field per feature, name from FIELD_NAME/NAME/FIELD/… (editable before saving), farm/grower attributes if present. Acres are geodesic (WGS84) from the original shape.
 - Saved fields keep using the existing per-record Supabase sync (`tm.fields`). Boundaries over 1,200 points are simplified (Douglas-Peucker) to keep sync light. Single-ring fields store `boundary` as before; multipart/holed fields add `shape`. Same-name imports update the existing field (id, spray links, grower/farm kept).
