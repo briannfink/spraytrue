@@ -311,6 +311,7 @@ select.casc-sel{flex:1 1 auto;width:auto;min-width:0;min-height:44px;font-size:1
 .casc-edit{margin:-2px 0 10px 58px;padding:8px;border:2px solid var(--line);border-radius:10px}
 .casc-er{display:flex;gap:6px;align-items:center}.casc-er input{flex:1 1 auto;min-width:0;min-height:42px;margin:0}
 .casc-del{display:flex;gap:8px;align-items:center;justify-content:space-between;margin-top:6px}
+.lgp{margin:0}.lgp .casc-step{margin:0 0 6px}.lgp-new{margin:-2px 0 8px 58px;width:calc(100% - 58px);min-height:42px}
 .casc-imp{margin:2px 0 4px}
 .fld-acts{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px}.fld-acts .btn{flex:0 1 auto;min-height:40px}
 .btn.big{min-height:54px;font-size:17px;font-weight:800}
@@ -1031,7 +1032,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
       <p class="tiny muted" style="margin:8px 0 0">Choose saved products or search EPA / WSDA in Add product. Always enter the label rate.</p>
     </div>
     <details class="card" id="mixMore"><summary>Cost &amp; planning notes</summary><div id="costCard"></div><div id="mixPlanNotes" class="small muted"></div></details>
-    <button class="btn alt block" id="btnLogMix" type="button" style="margin-bottom:12px">📝 Log Application</button>
+    <button class="btn alt block" id="btnLogMix" type="button" style="margin-bottom:12px">Log Spray Record</button>
   </div>
   <div id="mixLoadPane" hidden>
     <button type="button" class="btn alt block" id="mixBackEdit" aria-controls="mixEditPane">← Back to mix</button>
@@ -3255,6 +3256,59 @@ function fieldDlg(f){
     S.fields = S.fields.filter(x=>x!==f); persist("fields"); const n = NAV.get(); if (n.id===f.id) NAV.set({g:n.g, f:n.f, id:""}); closeDlg(); renderFields(); toast("Field deleted"); };
 }
 
+/* ---- v2.17 spray-record Grower › Farm › Field picker ----
+   Real <select>s (work on iPhone and Android, unlike <datalist>) built from the saved Growers & farms list and saved fields.
+   The record still saves plain grower / farm / field strings from the hidden lgGrower / lgFarm / lgField inputs, plus loc.fieldId. */
+const LGP_NEW = "∅__new";
+function logPickHtml(r){
+  const row = (k, label) => `<div class="casc-step lgp-row" id="lgp${k}Row"><label class="casc-l" for="lgp${k}">${label}</label><select id="lgp${k}" class="casc-sel"></select></div>
+    <input id="lgp${k}New" class="lgp-new" autocomplete="off" hidden aria-label="New ${label.toLowerCase()} name" placeholder="New ${label.toLowerCase()} name">`;
+  return `<div class="lgp" id="lgPick">${row("Grower","Grower")}${row("Farm","Farm")}${row("Field","Field")}
+    <input type="hidden" id="lgGrower" value="${esc(r.grower||"")}"><input type="hidden" id="lgFarm" value="${esc(r.farm||"")}"><input type="hidden" id="lgField" value="${esc(r.field||"")}"></div>`;
+}
+function initLogPick(r){
+  const gs = $("lgpGrower"); if (!gs) return;
+  const fs = $("lgpFarm"), ds = $("lgpField"), gn = $("lgpGrowerNew"), fn = $("lgpFarmNew"), dn = $("lgpFieldNew"), hG = $("lgGrower"), hF = $("lgFarm"), hD = $("lgField");
+  const opt = (v, t, sel) => `<option value="${esc(v)}"${sel?" selected":""}>${esc(t)}</option>`;
+  const listed = (L, cur) => { cur = String(cur||"").trim(); const out = L.slice(); if (cur && !out.some(x=>lc(x)===lc(cur))) out.unshift(cur); return out; };
+  const g = () => gs.value===LGP_NEW ? gn.value.trim() : gs.value, f = () => fs.value===LGP_NEW ? fn.value.trim() : fs.value;
+  const matches = () => S.fields.filter(x=>(!g() || lc(x.grower)===lc(g())) && (!f() || lc(x.farm)===lc(f()))).sort((a,b)=>a.name.localeCompare(b.name));
+  const pickSel = (sel, cur) => { const o = [...sel.options].find(x=>x.value && x.value!==LGP_NEW && lc(x.value)===lc(cur)); sel.value = o ? o.value : ""; };
+  const drawG = cur => { gs.innerHTML = opt("", "— No grower —") + listed(GF.growers().map(x=>x.name), cur).map(x=>opt(x, x)).join("") + opt(LGP_NEW, "＋ New grower…"); pickSel(gs, cur); };
+  const drawF = cur => { const L = g() ? GF.farms(g()) : uniqSorted(GF.growers().flatMap(x=>x.farms.map(y=>y.name)));
+    fs.innerHTML = opt("", "— No farm —") + listed(L, cur).map(x=>opt(x, x)).join("") + opt(LGP_NEW, "＋ New farm…"); pickSel(fs, cur); };
+  // field: saved fields for the chosen grower/farm (all when none), then "＋ New field…" for a name that isn't saved
+  const drawD = (id, name) => { const M = matches(), cur = id && S.fields.find(x=>x.id===id) || (name && M.find(x=>lc(x.name)===lc(name)));
+    ds.innerHTML = opt("", M.length ? "Choose a saved field…" : "No saved fields here") + M.map(x=>opt(x.id, x.name+(TM.fields2.fieldShape(x)?" · "+fmt(+x.acres||GEO.acres(x.boundary),1)+" ac":""))).join("") + opt(LGP_NEW, "＋ New field…");
+    if (cur && M.includes(cur)) ds.value = cur.id; else if (name){ ds.value = LGP_NEW; dn.value = name; } else ds.value = "";
+    dn.hidden = ds.value!==LGP_NEW; };
+  const syncHidden = () => { hG.value = g(); hF.value = f(); hD.value = ds.value===LGP_NEW ? dn.value.trim() : (S.fields.find(x=>x.id===ds.value)||{}).name||""; };
+  const changed = () => { try { saveLogDraft(); } catch(e){} };
+  const linkField = x => { drawG(x.grower||""); drawF(x.farm||""); gn.hidden = fn.hidden = true; drawD(x.id); syncHidden(); if (FMAP.loadField) FMAP.loadField(x);
+    if ($("lgAcres") && !num($("lgAcres").value) && num(x.acres)){ $("lgAcres").value = +(+x.acres).toFixed(2); $("lgAcres").dispatchEvent(new Event("input")); } };
+  // initial state from the record (or a restored draft): a linked field id wins, then a saved field with that name
+  const L0 = r.loc||{}, f0 = (L0.fieldId && S.fields.find(x=>x.id===L0.fieldId && lc(x.name)===lc(hD.value||x.name))) || fieldByName(hD.value);
+  drawG(f0 ? f0.grower||hG.value : hG.value); drawF(f0 ? f0.farm||hF.value : hF.value); gn.hidden = fn.hidden = true;
+  if (f0 && !matches().includes(f0)){ drawG(f0.grower||""); drawF(f0.farm||""); }
+  drawD(f0 && f0.id, hD.value); syncHidden();
+  gs.onchange = () => { gn.hidden = gs.value!==LGP_NEW; const keep = fs.value!==LGP_NEW && f() && GF.farms(g()).some(x=>lc(x)===lc(f())) ? f() : "";
+    drawF(keep); drawD(ds.value!==LGP_NEW ? ds.value : "", ds.value===LGP_NEW ? dn.value.trim() : ""); if (ds.value==="" && FMAP.unlinkField) FMAP.unlinkField();
+    syncHidden(); if (!gn.hidden) gn.focus(); changed(); };
+  fs.onchange = () => { fn.hidden = fs.value!==LGP_NEW;
+    if (fs.value && fs.value!==LGP_NEW && !g()){ const own = GF.growers().filter(x=>x.farms.some(y=>lc(y.name)===lc(fs.value))); if (own.length===1){ const v = fs.value; drawG(own[0].name); drawF(v); } }
+    drawD(ds.value!==LGP_NEW ? ds.value : "", ds.value===LGP_NEW ? dn.value.trim() : ""); if (ds.value==="" && FMAP.unlinkField) FMAP.unlinkField();
+    syncHidden(); if (!fn.hidden) fn.focus(); changed(); };
+  ds.onchange = () => { if (ds.value===LGP_NEW){ dn.hidden = false; if (FMAP.unlinkField) FMAP.unlinkField(); syncHidden(); dn.focus(); changed(); return; }
+    dn.hidden = true; const x = S.fields.find(y=>y.id===ds.value); if (x) linkField(x); else { if (FMAP.unlinkField) FMAP.unlinkField(); syncHidden(); } changed(); };
+  gn.oninput = () => { drawF(""); drawD("", ds.value===LGP_NEW ? dn.value.trim() : ""); syncHidden(); };
+  fn.oninput = () => { drawD("", ds.value===LGP_NEW ? dn.value.trim() : ""); syncHidden(); };
+  dn.oninput = () => { syncHidden(); };
+  // typing the name of a saved field links it
+  dn.onchange = () => { const x = fieldByName(dn.value); if (x){ dn.hidden = true; linkField(x); } else syncHidden(); changed(); };
+  [gn, fn, dn].forEach(i=>i.addEventListener("change", changed));
+}
+TM.initLogPick = initLogPick;
+
 /* ---- the Field location section of the spray-record form ---- */
 const FMAP = { w:null };
 function locSectionHtml(r){
@@ -3262,7 +3316,6 @@ function locSectionHtml(r){
   return `<div class="fert locbox" style="margin-top:0">
     <div class="row" style="justify-content:space-between"><span class="subhd" style="margin:0">📍 Field location</span>
       <div class="seg sm" id="lgLayer"><button type="button" data-v="sat">Satellite</button><button type="button" data-v="street">Street</button></div></div>
-    ${S.fields.length?`<select id="lgFieldPick" style="margin-top:8px" aria-label="Saved fields"><option value="">Saved fields (${S.fields.length})…</option>${S.fields.map(f=>`<option value="${f.id}"${f.id===L.fieldId?" selected":""}>${esc(f.name)}${f.boundary&&f.boundary.length>=3?" · "+fmt(+f.acres||GEO.acres(f.boundary),1)+" ac":""}</option>`).join("")}</select>`:""}
     <div class="fmap" id="lgMap" style="margin-top:8px"></div>
     <div class="tiny muted" id="lgMapHint" style="margin-top:4px">Tap the map to drop a pin; drag the pin to fine-tune.</div>
     <label class="f" for="lgCoord" style="margin-top:8px">Coordinates (lat, lon)</label>
@@ -3320,14 +3373,14 @@ function bindLocSection(r){
     if (!W.drawing && (L.boundary||[]).length>=3){ if (!GEO.valid(L.lat, L.lon)){ const c = GEO.center(L.boundary); setLoc(c.lat, c.lon, false); } W.fit(); }
     if (!W.drawing && (L.boundary||[]).length && L.boundary.length<3) toast("A boundary needs at least 3 corners");
     drawBnd(); };
-  const pick = $("lgFieldPick");
-  if (pick) pick.onchange = ()=>{ const f = S.fields.find(x=>x.id===pick.value); if (!f) return;
+  // a saved field picked in the Grower › Farm › Field rows loads its pin, boundary and acres
+  FMAP.loadField = f=>{ if (!f) return;
     L.fieldId = f.id; L.boundary = clone(f.boundary||[]); L.bAcres = f.acres||"";
     $("lgField").value = f.name; if (W){ W.setBoundary(L.boundary); }
-    if ((f.grower || f.farm) && $("lgGrower")){ $("lgGrower").value = f.grower||""; $("lgFarm").value = f.farm||""; $("lgGrower").dispatchEvent(new Event("input")); }
     setLoc(f.lat, f.lon, true);
     if (!num($("lgAcres").value) && num(f.acres)){ $("lgAcres").value = +(+f.acres).toFixed(2); $("lgAcres").dispatchEvent(new Event("input")); }
-    if (W) W.later(()=>W.fit(), 60); drawBnd(); toast("Loaded field “"+f.name+"”"); };
+    if (W) W.later(()=>W.fit(), 60); drawBnd(); };
+  FMAP.unlinkField = ()=>{ delete L.fieldId; };
   drawOut(); drawBnd();
 }
 // read the location section back into the record on save
@@ -5678,9 +5731,15 @@ function carrierAmtTxt(R, metric){
 TM.logProducts = logProducts;
 function blankLog(){
   const R = TM.calc(S.mix), ac = R.ok ? +R.acres.toFixed(2) : "";
-  const lp = logProducts(S.mix, ac), sf = fieldByName(S.mix.name), gfFromField = sf && (sf.grower || sf.farm);
-  return { id:null, job:S.mix.name||"", dt:nowLocal(), grower: gfFromField ? sf.grower||"" : S.settings.lastGrower||"", farm: gfFromField ? sf.farm||"" : S.settings.lastFarm||"", field:S.mix.name||"", crop:"", acres:ac, pests:"", mixRef:"__cur", mixName:S.mix.name||"", products:lp.products, tanks:lp.tanks, carrier:lp.carrier, carrierAmt:lp.carrierAmt,
-    applicator:S.settings.lastApplicator||"", license:S.settings.lastLicense||"", wx:{}, notes:"", rinsate:"", loc:fieldLoc(S.mix.name) };
+  // v2.17: the record's Field is a picker of saved fields. Use the mix's name only when it IS a saved field;
+  // otherwise preset from the Fields tab selection (field, else grower/farm), else the last grower/farm used.
+  const nav = TM.fieldsNav ? TM.fieldsNav.get() : {}, NONE = TM.fieldsNav ? TM.fieldsNav.NONE : "";
+  const navF = nav.id && S.fields.find(x=>x.id===nav.id);
+  const lp = logProducts(S.mix, ac), sf = fieldByName(S.mix.name) || navF || null;
+  const navG = nav.g && nav.g!==NONE ? nav.g : "", navFarm = navG && nav.f && nav.f!==NONE ? nav.f : "";
+  const grower = sf ? sf.grower||"" : navG || S.settings.lastGrower||"", farm = sf ? sf.farm||"" : navG ? navFarm : S.settings.lastFarm||"";
+  return { id:null, job:S.mix.name||"", dt:nowLocal(), grower, farm, field:sf ? sf.name : "", crop:"", acres:ac, pests:"", mixRef:"__cur", mixName:S.mix.name||"", products:lp.products, tanks:lp.tanks, carrier:lp.carrier, carrierAmt:lp.carrierAmt,
+    applicator:S.settings.lastApplicator||"", license:S.settings.lastLicense||"", wx:{}, notes:"", rinsate:"", loc:sf ? fieldLoc(sf.name) : null };
 }
 // a saved field with this exact name (e.g. the mix is named after the field) prefills the location
 function fieldByName(name){ return (name && S.fields.find(x=>x.name.toLowerCase()===String(name).trim().toLowerCase())) || null; }
@@ -5704,9 +5763,8 @@ function renderLogForm(){
   <div class="grid">
     ${inp("lgJob","Job name",r.job||"","text",'autocomplete="off" enterkeyhint="next" placeholder="e.g. Soybean post — north 85"')}
     ${inp("lgDt","Date & time","" + (r.dt||""),"datetime-local")}
-    <div class="grid g2">${inp("lgGrower","Grower",r.grower,"text",'list="growerList" autocomplete="off" placeholder="e.g. Fink Farms"')}${inp("lgFarm","Farm",r.farm,"text",'list="farmList" autocomplete="off" placeholder="e.g. Home place"')}</div>
-    <datalist id="growerList">${growerNames().map(g=>`<option value="${esc(g)}">`).join("")}</datalist><datalist id="farmList"></datalist>
-    <div class="grid g2">${inp("lgField","Field",r.field)}${inp("lgCrop","Crop",r.crop,"text",'list="cropList"')}</div>
+    ${logPickHtml(r)}
+    ${inp("lgCrop","Crop",r.crop,"text",'list="cropList"')}
     ${locSectionHtml(r)}
     <datalist id="cropList">${CROPS.filter(c=>c[0]&&c[0]!=="*").map(c=>`<option value="${esc(c[1]||c[0])}">`).join("")}</datalist>
     <div class="grid g2">${inp("lgAcres","Acres sprayed",r.acres,"number")}${inp("lgTanks","Tank loads",r.tanks,"number")}</div>
@@ -5730,11 +5788,6 @@ function renderLogForm(){
   const remix = () => { const lp = logProducts(mixFor(r.mixRef), r.acres); r.products = lp.products; r.carrier = lp.carrier; r.carrierAmt = lp.carrierAmt; r.mixName = r.mixRef ? (mixFor(r.mixRef)||{}).name||"" : ""; if (lp.tanks!=="" ) { r.tanks = lp.tanks; $("lgTanks").value = lp.tanks; } drawProds(); };
   drawProds();
   bindLocSection(r);
-  const drawFarms = () => { $("farmList").innerHTML = farmNames($("lgGrower").value).map(f=>`<option value="${esc(f)}">`).join(""); };
-  drawFarms(); $("lgGrower").addEventListener("input", drawFarms);
-  $("lgField").addEventListener("change", ()=>{ const sf = fieldByName($("lgField").value);
-    if (sf && !$("lgGrower").value.trim() && !$("lgFarm").value.trim()){ if (sf.grower) $("lgGrower").value = sf.grower; if (sf.farm) $("lgFarm").value = sf.farm; drawFarms(); } });
-  $("lgField").addEventListener("change", ()=>{ const L = r.loc||{}; if (GEO.valid(L.lat, L.lon) || (L.boundary||[]).length) return; const f = fieldLoc($("lgField").value); if (f && $("lgFieldPick")){ $("lgFieldPick").value = f.fieldId; $("lgFieldPick").onchange(); } });
   $("lgMix").onchange = e=>{ r.mixRef = e.target.value; remix(); };
   $("lgAcres").oninput = e=>{ r.acres = e.target.value; remix(); };
   ["lgT","lgRh","lgW","lgDir","lgG"].forEach(id=>$(id).addEventListener("input", ()=>{ r.wx = r.wx||{}; r.wx.manual = true; $("lgWxSrc").textContent = (r.wx.source?r.wx.source+" · ":"")+"edited by hand"; }));
@@ -5859,7 +5912,7 @@ function renderLogForm(){
     S.settings.lastApplicator = r.applicator; S.settings.lastLicense = r.license; S.settings.lastGrower = r.grower; S.settings.lastFarm = r.farm; persist("settings");
     if(persist("log")===false)return; clearLogDraft(); LOGF.editing = null; renderLogForm(); renderLog(); toast("Spray record saved");
   };
-  logDraftInputs(r); saveLogDraft();
+  logDraftInputs(r); initLogPick(r); saveLogDraft();
 }
 function gfMatch(r){ const g = LOGF.gf; if (!g) return true; const [k, gr, fa] = g.split("\u0001");
   return lc(r.grower)===lc(gr) && (k==="g" || lc(r.farm)===lc(fa)); }
