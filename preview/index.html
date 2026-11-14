@@ -242,7 +242,7 @@ details.setup>summary,#productAdvanced>summary{font-weight:750;cursor:pointer;mi
 #loadingTank .load-product .loadamount{white-space:normal;max-width:65%;text-align:right}
 #loadingTank .load-product .measure{display:inline-block;white-space:nowrap}
 #loadingTank .load-meta{margin:6px 0 10px} #loadingTank .note{margin:10px 0}
-#tankStats{margin:0 0 10px} #mixMore{margin-top:12px} #mixMore .card{box-shadow:none;border:0;padding:0;margin:8px 0}
+#tankStats{margin:0 0 10px} #mixMore{margin:12px 0} #mixMore .card{box-shadow:none;border:0;padding:0;margin:8px 0}
 #mixEditPane .prod:last-child{margin-bottom:0} #mixNext:disabled{opacity:.55}
 
 /* v2.16 Mixing mode: forced black on white for sunlight / E Ink; no color or animation dependence */
@@ -1013,12 +1013,12 @@ svg.leaflet-image-layer.leaflet-interactive path {
       </div>
       <p class="tiny muted" style="margin:8px 0 0">Choose saved products or search EPA / WSDA in Add product. Always enter the label rate.</p>
     </div>
+    <details class="card" id="mixMore"><summary>Cost &amp; planning notes</summary><div id="costCard"></div><div id="mixPlanNotes" class="small muted"></div></details>
     <button class="btn alt block" id="btnLogMix" type="button" style="margin-bottom:12px">📝 Log Application</button>
   </div>
   <div id="mixLoadPane" hidden>
     <button type="button" class="btn alt block" id="mixBackEdit" aria-controls="mixEditPane">← Back to mix</button>
     <div class="card" id="loadingTank" aria-live="polite"></div>
-    <details class="card" id="mixMore"><summary>Cost &amp; planning notes</summary><div id="costCard"></div><div id="mixPlanNotes" class="small muted"></div></details>
   </div>
 </section>
 
@@ -4523,7 +4523,7 @@ function renderMixWorkflow(R){
   $('mixEditPane').hidden=mixMode!=='edit';$('mixLoadPane').hidden=mixMode!=='load';
   $('mixNext').disabled=!ready;
   $('mixReadyHint').hidden=ready;$('mixReadyHint').textContent=!R.ok?'Enter tank size, carrier rate and field size first.':'Increase the field size to calculate a load.';
-  $('mixPlanNotes').textContent='Amounts use the entered label rates. Carrier = spray volume minus product volume, rounded to 0.1 '+(isMetric()?'L':'gal')+'. For amounts to purchase, choose Whole job totals above.';
+  $('mixPlanNotes').textContent='Amounts use the entered label rates. Carrier = spray volume minus product volume, rounded to 0.1 '+(isMetric()?'L':'gal')+'. For amounts to purchase, open Tank amounts and choose Whole job totals.';
 }
 TM.setMixMode=setMixMode;TM.mixMode=()=>mixMode;
 // Tank product readout only. Calculations, carrier volumes and print formatting stay untouched.
