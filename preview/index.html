@@ -231,8 +231,7 @@ details.setup>summary,#productAdvanced>summary{font-weight:750;cursor:pointer;mi
 #v-mix [hidden],header.top button[hidden]{display:none!important}
 #mixJobsCard{padding:12px 14px} #mixJobsCard .row{flex-wrap:nowrap;align-items:stretch}
 #mixJobsSel{flex:1;min-width:0} #btnClearMix{flex:0 0 auto;padding:0 10px}
-#mixMode{display:flex;width:100%;margin:0 0 12px} #mixMode button{flex:1;min-height:48px;font-size:16px}
-#mixMode button:disabled{opacity:.5} #mixMode button:focus-visible{outline:3px solid var(--accent);outline-offset:-4px}
+#mixNext{margin:0 0 12px;min-height:52px;font-size:17px}
 #mixEditPane>.card h2{margin-bottom:12px} #mixSetup>summary{font-size:18px}
 #mixSetup .grid{margin-top:10px} #mixNext{margin-top:12px}
 #v-mix .productExtras>summary,#mixMore>summary{cursor:pointer;font-weight:650;min-height:44px;line-height:44px}
@@ -291,6 +290,19 @@ body.mm-on{overflow:hidden}
 .nd-lg{display:flex;align-items:center;gap:8px}.nd-lg b{margin-left:auto}
 .nd-sw{width:26px;height:18px;border:1.5px solid #000;flex:0 0 auto}
 .nd-hatch{background:repeating-linear-gradient(45deg,#fff 0 4px,#969696 4px 8px)}
+
+/* v2.17 Fields tab: field-first groups */
+details.fld{border:2px solid var(--line);border-radius:12px;margin-bottom:10px;background:var(--card)}
+details.fld>summary{list-style:none;cursor:pointer;padding:12px 14px;min-height:52px;display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px}
+details.fld>summary::-webkit-details-marker{display:none}
+details.fld>summary::after{content:"▸";margin-left:auto;font-size:1.2em;font-weight:900}
+details.fld[open]>summary::after{content:"▾"}
+details.fld[open]>summary{border-bottom:1px solid var(--line)}
+.fld-nm{font-weight:800;font-size:1.05em}.fld-sub{flex-basis:100%}
+.fld-body{padding:10px 12px 4px}
+.fld-acts{margin-bottom:10px}
+.grid.g3{grid-template-columns:repeat(3,1fr)}@media (max-width:420px){.grid.g3{grid-template-columns:1fr 1fr}.grid.g3>:last-child{grid-column:1/-1}}
+#mixBackEdit{margin-bottom:12px}
 </style>
 <style>/* required styles */
 
@@ -977,11 +989,9 @@ svg.leaflet-image-layer.leaflet-interactive path {
     </div>
     <p class="tiny muted" id="mixJobsHint" style="margin:8px 0 0" hidden></p>
   </div>
-  <div class="seg" id="mixMode" role="group" aria-label="Mix workflow">
-    <button type="button" id="mixEditTab" data-mix-mode="edit" aria-controls="mixEditPane" aria-pressed="true" class="on">Edit mix</button>
-    <button type="button" id="mixLoadTab" data-mix-mode="load" aria-controls="mixLoadPane" aria-pressed="false">Tank amounts</button>
-  </div>
   <div id="mixEditPane">
+    <button class="btn block" id="mixNext" type="button" aria-controls="mixLoadPane">Tank amounts →</button>
+    <p class="small muted" id="mixReadyHint" style="margin:-4px 0 12px"></p>
     <details class="card setup" id="mixSetup" open><summary>1. Sprayer &amp; field</summary>
       <div class="grid">
         <div><label class="f" for="mixName">Mix name</label><input id="mixName" type="text" placeholder="e.g. Soybean post, north 85" autocomplete="off"></div>
@@ -1002,11 +1012,10 @@ svg.leaflet-image-layer.leaflet-interactive path {
         <button class="btn alt" id="btnAddProd">Enter manually</button>
       </div>
       <p class="tiny muted" style="margin:8px 0 0">Choose saved products or search EPA / WSDA in Add product. Always enter the label rate.</p>
-      <button class="btn block" id="mixNext" type="button">Use tank amounts →</button>
-      <p class="small muted" id="mixReadyHint" style="margin:8px 0 0"></p>
     </div>
   </div>
   <div id="mixLoadPane" hidden>
+    <button type="button" class="btn alt block" id="mixBackEdit" aria-controls="mixEditPane">← Back to mix</button>
     <div class="card" id="loadingTank" aria-live="polite"></div>
     <details class="card" id="mixMore"><summary>Cost &amp; planning notes</summary><div id="costCard"></div><div id="mixPlanNotes" class="small muted"></div></details>
     <button class="btn alt block" id="btnLogMix" style="margin-bottom:12px">📝 Log this spray</button>
@@ -1658,7 +1667,7 @@ function bindMixInputs(){
   $("btnAddProd").onclick = ()=>addProduct({});
   $("carrierType").onchange = e=>setCarrierType(e.target.value);
   $("quickAdd").onclick = ()=>openQuickAdd();
-  document.querySelectorAll('[data-mix-mode]').forEach(b=>b.onclick=()=>setMixMode(b.dataset.mixMode));
+  $('mixBackEdit').onclick=()=>setMixMode('edit',true);
   $('mixNext').onclick=()=>setMixMode('load',true);
 }
 function syncPriceUnit(p){ const k = kindOf(p.unit); if (kindOf(p.priceUnit)!==k) p.priceUnit = k==="wt" ? "lb" : "gal"; }
@@ -2926,13 +2935,56 @@ function locSummary(loc, print){
                 : `<a href="${url}" target="_blank" rel="noopener"><b>${GEO.fmt(loc.lat, loc.lon)}</b> ↗</a><br><span class="tiny muted">${GEO.dms(loc.lat, loc.lon)}</span>`) +
     (b ? `<br>${print?"":'<span class="small">'}Boundary: ${fmt(+loc.bAcres||GEO.acres(loc.boundary),1)} ac mapped, ${loc.boundary.length} points${print?"":"</span>"}` : "");
 }
+// v2.17: Fields tab is field-first. Each field expands to its spray records (newest first); unmatched records sit in "Unassigned".
+const FLD = { open:new Set() };
+function logsByField(){
+  const byId = new Map(S.fields.map(f=>[f.id, []])), byName = new Map(S.fields.map(f=>[f.name.trim().toLowerCase(), f.id])), none = [];
+  S.log.slice().sort((a,b)=>String(b.dt||"").localeCompare(String(a.dt||""))).forEach(r=>{
+    const id = r.loc && r.loc.fieldId && byId.has(r.loc.fieldId) ? r.loc.fieldId : byName.get(String(r.field||"").trim().toLowerCase());
+    (id ? byId.get(id) : none).push(r); });
+  return { byId, none };
+}
+TM.logsByField = logsByField;
 function renderFields(){
   const el = $("fieldList"); if (!el) return;
   $("fieldCount").textContent = S.fields.length;
-  el.innerHTML = S.fields.length ? S.fields.map(f=>`<div class="res" data-id="${f.id}"><button class="link" data-act="open"><div class="nm">📍 ${esc(f.name)}</div>${f.grower||f.farm?`<div class="tiny" style="font-weight:600">${esc([f.grower,f.farm].filter(Boolean).join(" › "))}</div>`:""}<div class="tiny muted">${GEO.fmt(f.lat,f.lon)}${f.boundary&&f.boundary.length>=3?" · "+fmt(+f.acres||GEO.acres(f.boundary),1)+" ac mapped":""}${f.src&&f.src.type==="shapefile"?" · shapefile":""}${TM.fields2.ndvi.hasNew(f)?' <span class="badge">🛰 New image</span>':""}</div></button><button class="iconbtn" data-act="menu" title="Options">⋯</button></div>`).join("")
-    : `<div class="empty small">No saved fields yet. Drop a pin when you log a spray and keep “Save as a field” checked.</div>`;
-  el.querySelectorAll("[data-act]").forEach(b=>b.onclick=()=>{ const f = S.fields.find(x=>x.id===b.closest(".res").dataset.id); if (f) fieldDlg(f); });
+  const g = logsByField(), N = TM.fields2.ndvi;
+  const group = (key, head, logs, body) => `<details class="fld" data-key="${esc(key)}"${FLD.open.has(key)?" open":""}><summary>${head}</summary><div class="fld-body">${body||""}
+      ${logs.length ? logs.map(TM.logRowHtml).join("") : `<div class="empty small">No spray records${key==="__none"?"":" for this field yet"}.</div>`}</div></details>`;
+  el.innerHTML = (S.fields.length ? S.fields.map(f=>{ const logs = g.byId.get(f.id)||[], sh = TM.fields2.fieldShape(f), ac = sh ? (+f.acres || GEO.acres(f.boundary)) : 0;
+      return group(f.id, `<span class="fld-nm">📍 ${esc(f.name)}</span>${N.hasNew(f)?' <span class="badge">🛰 New image</span>':""}
+        <span class="tiny muted fld-sub">${f.grower||f.farm?esc([f.grower,f.farm].filter(Boolean).join(" › "))+" · ":""}${sh?fmt(ac,1)+" ac":"no boundary"}${f.src&&f.src.type==="shapefile"?" · shapefile":""} · ${logs.length} spray record${logs.length===1?"":"s"}</span>`, logs,
+        `<div class="grid g3 fld-acts" data-id="${f.id}"><button class="btn alt sm" data-act="open">🗺 Map &amp; details</button>${sh?`<button class="btn alt sm" data-act="ndvi">🛰 NDVI</button>`:""}<button class="btn sm" data-act="log">📝 Log spray</button></div>`); }).join("")
+    : `<div class="empty small">No saved fields yet. Import a shapefile, tap ＋ Add field, or keep “Save as a field” checked when you log a spray.</div>`)
+    + (g.none.length ? group("__none", `<span class="fld-nm">📂 Unassigned spray records</span><span class="tiny muted fld-sub">${g.none.length} record${g.none.length===1?"":"s"} without a saved field</span>`, g.none) : "");
+  el.querySelectorAll("details.fld").forEach(d=>d.addEventListener("toggle", ()=>{ d.open ? FLD.open.add(d.dataset.key) : FLD.open.delete(d.dataset.key); }));
+  el.querySelectorAll(".fld-acts [data-act]").forEach(b=>b.onclick=()=>{ const f = S.fields.find(x=>x.id===b.closest(".fld-acts").dataset.id); if (!f) return;
+    if (b.dataset.act==="open") fieldDlg(f); else if (b.dataset.act==="ndvi") TM.ndviDlg(f); else logAtField(f); });
+  TM.bindLogRows(el);
 }
+function logAtField(f){ const r = blankLog(); r.field = f.name; if (f.grower || f.farm){ r.grower = f.grower||""; r.farm = f.farm||""; } r.loc = {lat:f.lat, lon:f.lon, boundary:clone(f.boundary||[]), bAcres:f.acres||"", fieldId:f.id}; if (!r.acres && f.acres) r.acres = +(+f.acres).toFixed(2); if(!beginLog(r))return; $("logFormCard").scrollIntoView({behavior:"smooth"}); }
+// ＋ Add field: name + pin (tap) + optional drawn boundary
+function addFieldDlg(){
+  const st = { lat:null, lon:null, boundary:[] };
+  openDlg("＋ Add field", `<label class="f" for="afName">Field name</label><input id="afName" autocomplete="off" placeholder="e.g. North pivot">
+    <div class="fmap sm" id="afMap" style="margin-top:8px"></div>
+    <div class="grid g2" style="margin-top:8px"><button type="button" class="btn alt sm" id="afGeo">📍 My location</button><button type="button" class="btn alt sm" id="afDraw">✏️ Draw boundary</button></div>
+    <p class="tiny muted" id="afHint" style="margin:6px 0 0">Tap the map to drop the field pin. Draw the boundary corner by corner for acres and NDVI.</p>
+    <button class="btn block" id="afSave" style="margin-top:10px">Save field</button>`);
+  const hint = () => { $("afHint").textContent = (GEO.valid(st.lat, st.lon) ? "Pin: "+GEO.fmt(st.lat, st.lon)+". " : "Tap the map to drop the field pin. ") + (st.boundary.length>=3 ? "Boundary: "+fmt(GEO.acres(st.boundary),1)+" ac." : "Draw the boundary corner by corner for acres and NDVI."); };
+  const W = makeMap($("afMap"), { onPin:(lat, lon)=>{ st.lat = lat; st.lon = lon; hint(); }, onBoundary:pts=>{ st.boundary = pts; hint(); } });
+  if (W){ TM.dlgCleanup = ()=>W.destroy(); W.later(()=>W.map.invalidateSize(), 80); }
+  $("afDraw").onclick = ()=>{ if (!W){ toast("The map isn't available"); return; } W.setDrawing(!W.drawing); $("afDraw").textContent = W.drawing ? "✓ Done drawing" : "✏️ Edit boundary"; if (!W.drawing && st.boundary.length>=3) W.fit(); };
+  $("afGeo").onclick = ()=>{ if (!navigator.geolocation){ toast("Location isn't available"); return; } navigator.geolocation.getCurrentPosition(p=>{ st.lat = +p.coords.latitude.toFixed(6); st.lon = +p.coords.longitude.toFixed(6); if (W) W.setPin(st.lat, st.lon, true); hint(); }, ()=>toast("Couldn't get your location"), {enableHighAccuracy:true, timeout:15000}); };
+  $("afSave").onclick = ()=>{ const name = $("afName").value.trim(); if (!name){ toast("Enter a field name"); $("afName").focus(); return; }
+    if (W && W.drawing) W.setDrawing(false);
+    if (st.boundary.length>=3 && !GEO.valid(st.lat, st.lon)){ const c = GEO.center(st.boundary); st.lat = c.lat; st.lon = c.lon; }
+    if (!GEO.valid(st.lat, st.lon)){ toast("Tap the map to place the field first"); return; }
+    if (S.fields.some(x=>x.name.toLowerCase()===name.toLowerCase()) && !confirm("A field named “"+name+"” exists. Replace its location and boundary?")) return;
+    const f = upsertField(name, {lat:st.lat, lon:st.lon, boundary:st.boundary.length>=3?st.boundary:[], bAcres:st.boundary.length>=3?+GEO.acres(st.boundary).toFixed(2):""});
+    closeDlg(); FLD.open.add(f.id); renderFields(); toast("Field saved"); };
+}
+TM.addFieldDlg = addFieldDlg;
 TM.renderFields = renderFields;
 function miniMap(id, loc){
   const el = $(id); if (!el) return;
@@ -2956,7 +3008,7 @@ function fieldDlg(f){
     <p class="tiny muted" style="margin:8px 0 0">Deleting a saved field doesn't change spray records that used it.</p>`);
   miniMap("fdMap", {lat:f.lat, lon:f.lon, boundary:f.boundary, shape:f.shape});
   if ($("fdNdvi")) $("fdNdvi").onclick = ()=>TM.ndviDlg(f);
-  $("fdLog").onclick = ()=>{ closeDlg(); const r = blankLog(); r.field = f.name; if (f.grower || f.farm){ r.grower = f.grower||""; r.farm = f.farm||""; } r.loc = {lat:f.lat, lon:f.lon, boundary:clone(f.boundary||[]), bAcres:f.acres||"", fieldId:f.id}; if (!r.acres && f.acres) r.acres = +(+f.acres).toFixed(2); if(!beginLog(r))return; $("logFormCard").scrollIntoView({behavior:"smooth"}); };
+  $("fdLog").onclick = ()=>{ closeDlg(); logAtField(f); };
   $("fdGF").onclick = ()=>{ const g = prompt("Grower for “"+f.name+"”:", f.grower||""); if (g==null) return; const fa = prompt("Farm for “"+f.name+"”:", f.farm||""); if (fa==null) return;
     f.grower = g.trim(); f.farm = fa.trim(); f.updated = Date.now(); persist("fields"); renderFields(); closeDlg(); fieldDlg(f); };
   $("fdRen").onclick = ()=>{ const n = prompt("Rename field:", f.name); if (n && n.trim()){ f.name = n.trim(); f.updated = Date.now(); persist("fields"); renderFields(); } closeDlg(); };
@@ -4463,14 +4515,13 @@ function mixLoadReady(R){return R.ok && (R.fullTanks>0||R.partialGal>0);}
 function setMixMode(mode, scroll=false){
   const R=TM.calc(S.mix);mixMode=mode==='load'&&mixLoadReady(R)?'load':'edit';
   $('mixSetup').open=mixMode==='edit';renderMixWorkflow(R);renderLoadingTank(R);
-  if(scroll){$('mixMode').style.scrollMarginTop=(document.querySelector('header.top').getBoundingClientRect().height+$('fieldStatus').getBoundingClientRect().height+8)+'px';$('mixMode').scrollIntoView({behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth',block:'start'});$(mixMode==='load'?'mixLoadTab':'mixEditTab').focus({preventScroll:true});}
+  if(scroll){const t=$(mixMode==='load'?'mixLoadPane':'mixEditPane');t.style.scrollMarginTop=(document.querySelector('header.top').getBoundingClientRect().height+$('fieldStatus').getBoundingClientRect().height+8)+'px';t.scrollIntoView({behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth',block:'start'});$(mixMode==='load'?'mixBackEdit':'mixNext').focus({preventScroll:true});}
 }
 function renderMixWorkflow(R){
   const ready=mixLoadReady(R);
   if(!ready&&mixMode==='load'){mixMode='edit';$('mixSetup').open=true;}
   $('mixEditPane').hidden=mixMode!=='edit';$('mixLoadPane').hidden=mixMode!=='load';
-  document.querySelectorAll('[data-mix-mode]').forEach(b=>{const on=b.dataset.mixMode===mixMode;b.classList.toggle('on',on);b.setAttribute('aria-pressed',String(on));});
-  $('mixLoadTab').disabled=!ready;$('mixNext').disabled=!ready;
+  $('mixNext').disabled=!ready;
   $('mixReadyHint').hidden=ready;$('mixReadyHint').textContent=!R.ok?'Enter tank size, carrier rate and field size first.':'Increase the field size to calculate a load.';
   $('mixPlanNotes').textContent='Amounts use the entered label rates. Carrier = spray volume minus product volume, rounded to 0.1 '+(isMetric()?'L':'gal')+'. For amounts to purchase, choose Whole job totals above.';
 }
@@ -5306,7 +5357,7 @@ async function ndviDlg(f, force){
 TM.ndviDlg = ndviDlg;
 
 /* ---------- Spray log ---------- */
-const LOGF = { q:"", gf:"", editing:null };
+const LOGF = { q:"", gf:"", editing:null, all:false };
 const nowLocal = () => { const d = new Date(); d.setMinutes(d.getMinutes()-d.getTimezoneOffset()); return d.toISOString().slice(0,16); };
 function renderLogView(){
   $("v-wx").innerHTML = `
@@ -5323,19 +5374,20 @@ function renderLogView(){
   </div>
 `;
   $("v-log").innerHTML = `
+  <div class="card" id="fieldsCard"><h2 style="justify-content:space-between">Fields <span class="badge" id="fieldCount">0</span></h2>
+    <div class="grid g2" style="margin-bottom:6px"><button type="button" class="btn alt" id="fieldImport">⬆ Import shapefile</button><button type="button" class="btn alt" id="fieldAdd">＋ Add field</button></div>
+    <input type="file" id="fieldFile" multiple hidden>
+    <p class="tiny muted" style="margin:0 0 10px">Tap a field to see its spray records, map and 🛰 NDVI. Shapefiles: a .zip, or the .shp, .dbf and .prj files together.</p>
+    <div id="fieldList"></div>
+  </div>
   <div class="card" id="logFormCard"></div>
-  <div class="card"><h2 style="justify-content:space-between">Spray records <span class="badge" id="logCount">0</span></h2>
-    <input id="logQ" type="search" placeholder="Filter by grower, farm, field, crop, product…" value="${esc(LOGF.q)}">
+  <div class="card" id="logSearchCard"><h2 style="justify-content:space-between">Search all spray records <span class="badge" id="logCount">0</span></h2>
+    <input id="logQ" type="search" placeholder="Field, product, crop, date, grower, farm…" value="${esc(LOGF.q)}">
     <select id="logGF" aria-label="Filter by grower and farm" style="margin-top:8px" hidden></select>
     <div class="grid g2" style="margin:10px 0"><button class="btn alt sm" id="logCsv">⬇ Export CSV</button><button class="btn alt sm" id="logPrintAll">🖨 Print records</button></div>
     <div id="logList"></div>
-  </div>
-  <div class="card"><h2 style="justify-content:space-between">Saved fields <span class="badge" id="fieldCount">0</span></h2>
-    <button type="button" class="btn alt block" id="fieldImport">⬆ Import shapefile boundaries</button>
-    <input type="file" id="fieldFile" multiple hidden>
-    <p class="tiny muted" style="margin:6px 0 10px">Choose a .zip, or select the .shp, .dbf and .prj files together. Open a field for its map and 🛰 NDVI images.</p>
-    <div id="fieldList"></div>
   </div>`;
+  $("fieldAdd").onclick = ()=>addFieldDlg();
   $("fieldImport").onclick = ()=>$("fieldFile").click();
   $("fieldFile").onchange = e=>{ const fl = [...e.target.files]; e.target.value = ""; if (fl.length) TM.importShapefiles(fl); };
   $("wxGet").onclick = ()=>getWeather();
@@ -5583,15 +5635,13 @@ function filteredLog(){
   return S.log.slice().sort((a,b)=>(b.dt||"").localeCompare(a.dt||"")).filter(gfMatch).filter(r=> !q || [r.grower,r.farm,r.field,r.crop,r.mixName,r.applicator,r.pests,r.notes,r.dt,...(r.products||[]).map(p=>p.name+" "+p.epa)].join(" ").toLowerCase().includes(q));
 }
 const dtTxt = s => { if (!s) return ""; const d = new Date(s); return isFinite(d) ? d.toLocaleString("en-US",{month:"short",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit"}) : s; };
-function renderLog(){
-  const el = $("logList"); if (!el) return;
-  drawGfFilter();
-  const L = filteredLog(); $("logCount").textContent = S.log.length;
-  el.innerHTML = L.length ? L.map(r=>`<div class="res" data-id="${r.id}"><button class="link" data-act="open"><div class="nm">${esc(r.field||"(no field)")}${r._syncConflict?` <span class="badge">Conflict copy</span>`:""}${r.crop?" · "+esc(r.crop):""}</div>
+const logRowHtml = r => `<div class="res" data-id="${r.id}"><button class="link" data-act="open"><div class="nm">${esc(r.field||"(no field)")}${r._syncConflict?` <span class="badge">Conflict copy</span>`:""}${r.crop?" · "+esc(r.crop):""}</div>
     ${gfTxt(r)?`<div class="tiny" style="font-weight:600">${esc(gfTxt(r))}</div>`:""}<div class="tiny muted">${esc(dtTxt(r.dt))} · ${r.acres?esc(r.acres)+" ac · ":""}${esc(r.mixName||"no mix")}${r.loc&&GEO.valid(r.loc.lat,r.loc.lon)?" · 📍":""}${r.wx&&r.wx.windMph!==""&&r.wx.windMph!=null?" · wind "+esc(r.wx.windMph)+" mph "+esc(r.wx.windDirTxt||""):""}</div></button>
-    <button class="iconbtn" data-act="menu" title="Options">⋯</button></div>`).join("") : `<div class="empty">${S.log.length?"No records match the filter.":"No spray records yet."}</div>`;
-  el.querySelectorAll("[data-act]").forEach(b=>b.onclick=()=>{
-    const r = S.log.find(x=>x.id===b.closest(".res").dataset.id);
+    <button class="iconbtn" data-act="menu" title="Options">⋯</button></div>`;
+// open / menu actions for any list of spray-record rows (search results and each field's records)
+function bindLogRows(el){
+  el.querySelectorAll(".res[data-id] > [data-act]").forEach(b=>b.onclick=()=>{
+    const r = S.log.find(x=>x.id===b.closest(".res").dataset.id); if (!r) return;
     if (b.dataset.act==="open") return showLogRec(r);
     openDlg(r.field||"Spray record", `<div class="grid"><button class="btn alt" id="lrEdit">Edit</button><button class="btn alt" id="lrPrint">🖨 Print record</button><button class="btn alt" id="lrDup">Duplicate (new date)</button><button class="btn danger" id="lrDel">Delete</button></div>`);
     $("lrEdit").onclick = ()=>{ closeDlg(); editLog(r); };
@@ -5599,6 +5649,20 @@ function renderLog(){
     $("lrDup").onclick = ()=>{ closeDlg(); const c = clone(r); c.id = null; c.dt = nowLocal(); c.wx = {}; beginLog(c); $("logFormCard").scrollIntoView({behavior:"smooth"}); };
     $("lrDel").onclick = ()=>{ if (!confirm("Delete this spray record?")) return; S.log = S.log.filter(x=>x!==r); persist("log"); closeDlg(); renderLog(); toast("Deleted"); };
   });
+}
+TM.logRowHtml = logRowHtml; TM.bindLogRows = bindLogRows;
+// Search box at the bottom of the Fields tab: results once you type or filter; "Show all" lists every record
+function renderLog(){
+  const el = $("logList"); if (!el) return;
+  drawGfFilter();
+  const L = filteredLog(), active = !!(LOGF.q.trim() || LOGF.gf); $("logCount").textContent = S.log.length;
+  if (!S.log.length) el.innerHTML = `<div class="empty">No spray records yet.</div>`;
+  else if (!active && !LOGF.all) el.innerHTML = `<button type="button" class="btn alt sm block" id="logShowAll">Show all ${S.log.length} record${S.log.length===1?"":"s"}</button>`;
+  else el.innerHTML = (L.length ? L.map(logRowHtml).join("") : `<div class="empty">No records match the search.</div>`) + (!active ? `<button type="button" class="btn alt sm block" id="logHideAll">Hide list</button>` : "");
+  if ($("logShowAll")) $("logShowAll").onclick = ()=>{ LOGF.all = true; renderLog(); };
+  if ($("logHideAll")) $("logHideAll").onclick = ()=>{ LOGF.all = false; renderLog(); };
+  bindLogRows(el);
+  if (typeof renderFields==="function") renderFields();
 }
 TM.renderLog = renderLog;
 function editLog(r){ beginLog(clone(r)); $("logFormCard").scrollIntoView({behavior:"smooth"}); }
