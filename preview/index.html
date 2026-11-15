@@ -1256,7 +1256,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
    3. Storage (localStorage)
    4. UI: Mix, Order/Jar test, Lookup (EPA), Saved, Print
    ===================================================================== */
-const APP_VERSION = "2.17.4";
+const APP_VERSION = "2.17.5";
 const TM = window.TM = {};
 
 /* ---------- 1. Constants ---------- */
@@ -2674,17 +2674,67 @@ const WX = TM.WX = {
   active(){ const s = this.sources[S.settings.wxSrc]; return s && s.ready && (!s.usable || s.usable()) ? s : this.sources.openmeteo; }
 };
 const OM = "https://api.open-meteo.com/v1/forecast", OMGEO = "https://geocoding-api.open-meteo.com/v1/search";
+/* v2.17.5: weather requests keep the real reason when they fail (HTTP status + the service's own reason, timeout, or
+   network error) and retry once after a short pause for network errors, timeouts, 429 and 5xx (never for a 400). */
+async function wxGet(url, ms, name){
+  const once = async () => {
+    const ctl = new AbortController(), t = setTimeout(()=>ctl.abort(), ms||15000); let r;
+    try { r = await fetch(url, {signal:ctl.signal, cache:"no-store", credentials:"omit"}); }
+    catch(e){ const err = new Error(navigator.onLine===false ? "no network connection" : e && e.name==="AbortError" ? name+" didn't answer in "+Math.round((ms||15000)/1000)+" s" : "couldn't reach "+name+(e && e.message ? " ("+e.message+")" : "")); err.retry = navigator.onLine!==false; throw err; }
+    finally { clearTimeout(t); }
+    if (!r.ok){ let why = ""; try { const j = await r.json(); why = j && (j.reason || j.detail || j.title) || ""; } catch(e){}
+      const err = new Error(name+" HTTP "+r.status+(r.status===429?" (too many requests from this network)":"")+(why?": "+String(why).slice(0,160):"")); err.status = r.status; err.retry = r.status===429 || r.status>=500; throw err; }
+    try { return await r.json(); } catch(e){ const err = new Error(name+" sent an unreadable reply"); err.retry = true; throw err; }
+  };
+  try { return await once(); }
+  catch(e){ if (!e.retry || WX.noRetry) throw e; await new Promise(ok=>setTimeout(ok, WX.retryMs)); return once(); }
+}
+WX.retryMs = 2000;
+TM.wxGet = wxGet;
 WX.register("openmeteo", { label:"Open-Meteo (Free, No Key; Model Forecast)", ready:true, needsLocation:true,
   async fetch(loc){
+    if (!loc || !GEO.valid(loc.lat, loc.lon)) throw new Error("no valid location for the forecast");
     const h = "temperature_2m,temperature_80m,relative_humidity_2m,wind_speed_10m,wind_direction_10m,wind_gusts_10m,precipitation_probability,precipitation,is_day";
     const url = `${OM}?latitude=${loc.lat}&longitude=${loc.lon}&current=temperature_2m,relative_humidity_2m,wind_speed_10m,wind_direction_10m,wind_gusts_10m,precipitation&hourly=${h}&daily=sunrise,sunset&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch&timezone=auto&forecast_days=2&forecast_hours=13`;
-    const d = await getJSON(url, 15000), c = d.current, H = d.hourly;
-    return { place: loc.name, tz: tzName(d.timezone, d.timezone_abbreviation), source:"Open-Meteo", lat:d.latitude, lon:d.longitude,
+    const d = await wxGet(url, 15000, "Open-Meteo"), c = d.current, H = d.hourly;
+    if (!c || !H || !Array.isArray(H.time)) throw new Error("Open-Meteo reply was missing the forecast");
+    return { place: loc.name, utcOffset: d.utc_offset_seconds, tz: tzName(d.timezone, d.timezone_abbreviation), source:"Open-Meteo", lat:d.latitude, lon:d.longitude,
       now:{ at:c.time, tempF:c.temperature_2m, rh:c.relative_humidity_2m, windMph:c.wind_speed_10m, gustMph:c.wind_gusts_10m, windDir:c.wind_direction_10m, precipIn:c.precipitation },
       hours: H.time.map((t,i)=>({ t, tempF:H.temperature_2m[i], t80F:H.temperature_80m?H.temperature_80m[i]:null, rh:H.relative_humidity_2m[i], windMph:H.wind_speed_10m[i], gustMph:H.wind_gusts_10m[i], windDir:H.wind_direction_10m[i], pop:H.precipitation_probability[i], precipIn:H.precipitation[i], isDay:H.is_day[i] })),
-      sun: (d.daily.time||[]).map((t,i)=>({rise:d.daily.sunrise[i], set:d.daily.sunset[i]})) };
+      sun: ((d.daily||{}).time||[]).map((t,i)=>({rise:d.daily.sunrise[i], set:d.daily.sunset[i]})) };
   }});
 
+/* v2.17.5 hourly outlook for a station (Tempest / WU): Open-Meteo first; if it fails, the last good Open-Meteo outlook for
+   that spot when under 2 h old (past hours dropped); else the US National Weather Service hourly forecast; else the reason. */
+WX.OUT_KEY = "tankmix.wxOutlook.v1";   // device-only, not synced
+WX.OUT_MAX_MIN = 120;
+const outKey = loc => (+loc.lat).toFixed(3)+","+(+loc.lon).toFixed(3);
+function outSave(loc, fc){ try { const all = JSON.parse(localStorage.getItem(WX.OUT_KEY)||"{}"); Object.keys(all).forEach(k=>{ if (Date.now()-all[k].at > 6*3.6e6) delete all[k]; });
+  all[outKey(loc)] = { at:Date.now(), tz:fc.tz, utcOffset:fc.utcOffset, hours:fc.hours, sun:fc.sun }; localStorage.setItem(WX.OUT_KEY, JSON.stringify(all)); } catch(e){} }
+function outLoad(loc){ try { const o = JSON.parse(localStorage.getItem(WX.OUT_KEY)||"{}")[outKey(loc)]; if (!o || !(Date.now()-o.at < WX.OUT_MAX_MIN*60000)) return null;
+  const nowH = new Date(Date.now()+(+o.utcOffset||0)*1000).toISOString().slice(0,13), hours = (o.hours||[]).filter(h=>String(h.t).slice(0,13) >= nowH);
+  return hours.length ? Object.assign({}, o, {hours}) : null; } catch(e){ return null; } }
+const DIR16 = {N:0,NNE:22.5,NE:45,ENE:67.5,E:90,ESE:112.5,SE:135,SSE:157.5,S:180,SSW:202.5,SW:225,WSW:247.5,W:270,WNW:292.5,NW:315,NNW:337.5};
+async function nwsOutlook(loc){
+  if (!(loc.lat>18 && loc.lat<72 && loc.lon>-180 && loc.lon<-60)) throw new Error("NWS covers the US only");
+  const pt = await wxGet("https://api.weather.gov/points/"+(+loc.lat).toFixed(4)+","+(+loc.lon).toFixed(4), 12000, "NWS");
+  const u = pt && pt.properties && pt.properties.forecastHourly; if (!u) throw new Error("NWS has no forecast here");
+  const d = await wxGet(u, 12000, "NWS"), P = (d.properties && d.properties.periods) || [];
+  const hours = P.slice(0, 13).map(p=>{ const w = /(\d+)(?:\s*to\s*(\d+))?/.exec(p.windSpeed||""), f = p.temperatureUnit==="C" ? p.temperature*9/5+32 : p.temperature;
+    return { t:String(p.startTime).slice(0,16), tempF:f, t80F:null, rh:p.relativeHumidity&&p.relativeHumidity.value, windMph:w ? +(w[2]||w[1]) : null, gustMph:null,
+      windDir:DIR16[p.windDirection]!=null ? DIR16[p.windDirection] : null, pop:p.probabilityOfPrecipitation ? (p.probabilityOfPrecipitation.value||0) : null, precipIn:null, isDay:p.isDaytime?1:0 }; });
+  if (!hours.length) throw new Error("NWS sent no hours");
+  return { hours, sun:[] };
+}
+WX.outlook = async loc => {
+  let err;
+  try { const fc = await WX.sources.openmeteo.fetch(loc); outSave(loc, fc); return { fc, src:"Open-Meteo forecast" }; } catch(e){ err = e; }
+  const why = "Open-Meteo: "+(err && err.message || err);
+  const old = loc && GEO.valid(loc.lat, loc.lon) ? outLoad(loc) : null;
+  if (old){ const m = Math.round((Date.now()-old.at)/60000); return { fc:old, src:"Open-Meteo forecast from "+m+" min ago", note:"Couldn't refresh the hourly outlook ("+why+"). Showing the one from "+m+" min ago." }; }
+  if (loc && GEO.valid(loc.lat, loc.lon)) try { const fc = await nwsOutlook(loc); return { fc, src:"National Weather Service forecast", note:"Couldn't get the Open-Meteo hourly outlook ("+why+"). Using the National Weather Service hourly forecast instead (no gusts or inversion hint)." }; } catch(e){}
+  return { fc:null, err:"Couldn't get the Open-Meteo hourly outlook ("+why+")" };
+};
 const COMPASS = ["N","NNE","NE","ENE","E","ESE","SE","SSE","S","SSW","SW","WSW","W","WNW","NW","NNW"];
 const compass = d => (d==null || d==="" || !isFinite(d)) ? "" : COMPASS[Math.round(((+d%360)+360)%360/22.5)%16];
 TM.compass = compass;
@@ -2829,12 +2879,13 @@ function renderWx(){
     ${ev.flags.map(f=>`<div class="flag ${f.lvl}">${esc(f.msg)}</div>`).join("")}
     ${rs?`<div class="flag caution">Rain chance ${fmt(rs.pop,0)}% by ${esc(hhmm(rs.t))}. Check each product's rainfast interval on the label.</div>`:""}
     ${!stale&&!ev.flags.length&&!rs&&H.length?`<div class="flag good">Within the general guidelines right now (3–10 mph wind, under 85°F, no rain soon).</div>`:""}
-    <h3>Next 12 Hours${T?` <span class="tiny muted" style="font-weight:600">· Open-Meteo forecast</span>`:""}</h3>
+    ${d.hoursNote?`<div class="flag caution">${esc(d.hoursNote)}</div>`:""}
+    <h3>Next 12 Hours${T?` <span class="tiny muted" style="font-weight:600">· ${esc(d.hoursSrc||"Open-Meteo forecast")}</span>`:""}</h3>
     ${H.length?`<div class="hrs"><table><tr><th>Time</th><th>Wind</th><th>Gust</th><th>Dir</th><th>Temp</th><th>RH</th><th>Rain</th><th></th></tr>
-    ${H.slice(0,13).map(x=>{ const e = sprayFlags(x, {nearDusk: nearDusk(x.t, d.sun)}); return `<tr><td>${esc(hhmm(x.t))}</td><td><b>${fmt(x.windMph,0)}</b></td><td>${fmt(x.gustMph,0)}</td><td>${compass(x.windDir)}</td><td>${fmt(x.tempF,0)}°</td><td>${fmt(x.rh,0)}%</td><td>${fmt(x.pop,0)}%</td><td><span class="pill ${stale?"unknown":e.level}" title="${esc(e.flags.map(f=>f.msg).join(" "))}">${stale?"?":{good:"OK",caution:"!",poor:"✗"}[e.level]}</span></td></tr>`; }).join("")}
+    ${H.slice(0,13).map(x=>{ const e = sprayFlags(x, {nearDusk: nearDusk(x.t, d.sun)}); const f0 = v => v==null||v===""||!isFinite(v) ? "—" : fmt(v,0); return `<tr><td>${esc(hhmm(x.t))}</td><td><b>${f0(x.windMph)}</b></td><td>${f0(x.gustMph)}</td><td>${compass(x.windDir)}</td><td>${f0(x.tempF)}°</td><td>${f0(x.rh)}%</td><td>${f0(x.pop)}%</td><td><span class="pill ${stale?"unknown":e.level}" title="${esc(e.flags.map(f=>f.msg).join(" "))}">${stale?"?":{good:"OK",caution:"!",poor:"✗"}[e.level]}</span></td></tr>`; }).join("")}
     </table></div>`:`<p class="small muted">${esc(d.hoursErr||"No hourly outlook")}. Tap the button again to retry.</p>`}
     <p class="tiny muted" style="margin:8px 0 0">${T
-      ? `Now: live reading from ${esc(srcKind)} station ${esc(T.label)} (${fmt(d.lat,3)}, ${fmt(d.lon,3)}), reported ${esc(TP.ago(T.ts))}, fetched ${age<1?"just now":fmt(age,0)+" min ago"}. Hourly outlook and inversion hint: Open-Meteo model forecast for the station's location. Times are local to the station (${esc(d.tz||"")}).`
+      ? `Now: live reading from ${esc(srcKind)} station ${esc(T.label)} (${fmt(d.lat,3)}, ${fmt(d.lon,3)}), reported ${esc(TP.ago(T.ts))}, fetched ${age<1?"just now":fmt(age,0)+" min ago"}. Hourly outlook${d.hoursSrc&&/National/.test(d.hoursSrc)?"":" and inversion hint"}: ${esc(d.hoursSrc||"Open-Meteo forecast")} for the station's location. Times are local to the station (${esc(d.tz||"")}).`
       : `${esc(d.source)} model data for ${esc(d.place||"")} (${fmt(d.lat,3)}, ${fmt(d.lon,3)}), fetched ${age<1?"just now":fmt(age,0)+" min ago"}. Times are local to that spot (${esc(d.tz||"")}). It's a forecast grid, not a reading at your field, so check wind at the field before you spray.`}
       <b>These are general guidelines. The product label's wind, temperature, droplet-size, and inversion rules take precedence.</b></p>`;
   } else if (!WXS.busy && !WXS.err) h += `<p class="muted small" style="margin:10px 0 0">Tap <b>${pws?"Get station reading":"Get local weather"}</b> for current wind, temperature, humidity, and the next 12 hours.</p>`;
@@ -3793,12 +3844,12 @@ async function tpWeather(st){
   catch(e){ why = e.kind==="auth" ? "Tempest token for "+st.acctName+" was rejected (401)" : e.message; }
   const loc = {lat:st.lat, lon:st.lon, name:st.label+" (station location)"};
   if (why){ const d = await WX.sources.openmeteo.fetch(loc); d.fallback = why; d.stationId = st.id; return d; }
-  let fc = null; try { fc = await WX.sources.openmeteo.fetch(loc); } catch(e){}
+  const ol = await WX.outlook(loc), fc = ol.fc;
   const tz = st.tz || o.tz;
   return { place:st.label, tz: tz ? tzName(tz, "") : (fc&&fc.tz)||"", source:"Tempest", lat:st.lat, lon:st.lon,
     tempest:{ id:st.id, label:st.label, acct:st.acctName, ts:o.ts, stale:TP.stale(o), lullMph:o.lullMph },
     now:{ at:TP.isoLocal(o.ts, tz), tempF:o.tempF, rh:o.rh, windMph:o.windMph, gustMph:o.gustMph, windDir:o.windDir, precipIn:o.precipIn, deltaTC:o.deltaTC },
-    hours: fc ? fc.hours : [], sun: fc ? fc.sun : [], hoursErr: fc ? "" : "Couldn't get the Open-Meteo hourly outlook" };
+    hours: fc ? fc.hours : [], sun: fc ? fc.sun||[] : [], hoursSrc: ol.src||"", hoursNote: ol.note||"", hoursErr: fc ? "" : ol.err };
 }
 TM.tpWeather = tpWeather;
 WX.register("tempest", { label:"WeatherFlow Tempest Station(s)", ready:true, needsLocation:false, usable:()=>TP.connected(),
@@ -3982,14 +4033,14 @@ async function wuWeather(st){
   catch(e){ why = e.kind==="auth" ? "WU API key for "+st.acctName+" was rejected (401)" : e.message; }
   const lat = (o && GEO.valid(o.lat, o.lon)) ? o.lat : st.lat, lon = (o && GEO.valid(o.lat, o.lon)) ? o.lon : st.lon;
   const loc = {lat, lon, name:st.label+" (station location)"};
-  if (why || !GEO.valid(lat, lon)){ const d = GEO.valid(lat,lon) ? await WX.sources.openmeteo.fetch(loc) : await WX.sources.openmeteo.fetch(WXS.loc || loc);
+  if (why || !GEO.valid(lat, lon)){ const d = GEO.valid(lat,lon) ? await WX.sources.openmeteo.fetch(loc) : await WX.sources.openmeteo.fetch(GEO.valid((S.settings.wxLoc||{}).lat, (S.settings.wxLoc||{}).lon) ? S.settings.wxLoc : loc);
     d.fallback = why || "Station has no location yet"; d.stationId = st.id; return d; }
   if (why){ const d = await WX.sources.openmeteo.fetch(loc); d.fallback = why; d.stationId = st.id; return d; }
-  let fc = null; try { fc = await WX.sources.openmeteo.fetch(loc); } catch(e){}
+  const ol = await WX.outlook(loc), fc = ol.fc;
   return { place:st.label, tz: (fc&&fc.tz)||"", source:"WU", lat, lon,
     wu:{ id:st.id, label:st.label, acct:st.acctName, ts:o.ts, stale:WU.stale(o) },
     now:{ at:WU.isoLocal(o.ts, o.local), tempF:o.tempF, rh:o.rh, windMph:o.windMph, gustMph:o.gustMph, windDir:o.windDir, precipIn:o.precipIn, dewptF:o.dewptF },
-    hours: fc ? fc.hours : [], sun: fc ? fc.sun : [], hoursErr: fc ? "" : "Couldn't get the Open-Meteo hourly outlook" };
+    hours: fc ? fc.hours : [], sun: fc ? fc.sun||[] : [], hoursSrc: ol.src||"", hoursNote: ol.note||"", hoursErr: fc ? "" : ol.err };
 }
 TM.wuWeather = wuWeather;
 WX.register("wunderground", { label:"Weather Underground PWS Station(s)", ready:true, needsLocation:false, usable:()=>WU.connected(),
