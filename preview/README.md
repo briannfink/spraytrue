@@ -1,4 +1,11 @@
-# SprayTrue (v2.17.5 — live; published Nov 14, 2026)
+# SprayTrue (v2.17.6 — PREVIEW ONLY; live is v2.17.5)
+
+## v2.17.6 — Full-screen field map, market prices ticker (preview)
+
+- **Fields › selected field › 🗺 Map** now opens a full-screen satellite map of the field (boundary outline, pinch zoom / pan, big ✕) instead of the small map dialog, with 🛰 NDVI, 📝 Log Spray, ℹ️ Field Details and 📍 Directions. The field dialog keeps its small preview plus a **⛶ Full Screen Map** button. Same full-screen handling as NDVI (Fullscreen API where it works; fixed full-viewport layer on iPhone/iPad; Escape closes).
+- **Market Prices Ticker** (Settings › Market Prices Ticker, off by default): a scrolling bar under the header on every screen with posted cash bids straight from each elevator's public cash-bid page — Ritzville Warehouse (33 locations incl. Ritzville, Odessa, Lind), HighLine Grain Growers (40 incl. Odessa, Davenport, Reardan) and PNW Farmers Cooperative (PNW cash bids). Pick up to 4 locations and the crops (Soft White, Club, HRW, DNS, Barley, Canola, Triticale, Peas/Lentils/Garbanzos). Each item shows the price, delivery month, change (vs the prior posting day once this device has seen it, otherwise the elevator's futures move), posting date/time and source. Tap for every delivery month and a link to the source page. A source that fails says so; saved bids are labelled "Saved". Checks about every 30 minutes while open. No prices are ever estimated.
+- Tests: `tools/test36.js` (26), `tools/test37.js` (46, real trimmed cash-bid pages in `tools/fixtures/`).
+
 
 ## v2.17.5 — Weather: hourly outlook keeps working and says why (live)
 

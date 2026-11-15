@@ -300,6 +300,27 @@ body.mm-on{overflow:hidden}
 .nd-fs-lg .nd-legend{grid-template-columns:repeat(auto-fill,minmax(130px,1fr));font-size:.8em;padding-bottom:6px}
 body.nd-fs-on{overflow:hidden}
 @media print{.nd-fs{display:none!important}}
+.fld-fs-acts{justify-content:flex-start}.fld-fs-acts a.nd-fs-date{display:inline-flex;align-items:center;text-decoration:none}
+header.top.has-mkt{flex-wrap:wrap}header.top.has-mkt .title{flex-basis:0}
+.mkt-bar{flex:0 0 100%;order:99;margin:6px -14px -10px;overflow:hidden;background:#0d0d0d;color:#fff;border-top:1px solid rgba(255,255,255,.25);height:34px;display:flex;align-items:center;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.mkt-track{display:flex;white-space:nowrap;will-change:transform;animation:mktScroll 60s linear infinite}
+.mkt-bar:hover .mkt-track,.mkt-bar:focus .mkt-track,.mkt-bar:active .mkt-track{animation-play-state:paused}
+.mkt-run{display:inline-flex;align-items:center;flex:0 0 auto}
+.mkt-it{font-size:15px;font-weight:650;padding:0 4px;letter-spacing:.01em}
+.mkt-px{font-size:16px;color:#ffe066}
+.mkt-del{opacity:.85;font-size:13px}
+.mkt-up{color:#6dff9c;font-weight:800}.mkt-dn{color:#ff8a8a;font-weight:800}.mkt-un{color:#ddd}
+.mkt-src{opacity:.75;font-size:12.5px;font-weight:600}
+.mkt-err{color:#ffcf70}
+.mkt-sep{padding:0 12px;opacity:.5}
+@keyframes mktScroll{from{transform:translateX(0)}to{transform:translateX(-50%)}}
+@media (prefers-reduced-motion:reduce){.mkt-track{animation:none}.mkt-bar{overflow-x:auto}}
+@media print{.mkt-bar{display:none!important}}
+.mkt-locs{display:grid;gap:6px;margin-bottom:6px}.mkt-loc{display:flex;justify-content:space-between;align-items:center;gap:8px;border:1px solid var(--line);border-radius:10px;padding:4px 4px 4px 10px}
+.mkt-add{display:flex;gap:6px;flex-wrap:wrap}.mkt-add select{flex:1 1 140px;min-width:0}
+.mkt-crops{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:2px 10px}
+#mktOpts.mkt-off{opacity:.6}
+.mkt-tbl{margin:6px 0}.mkt-tbl table{width:100%}
 .nd-dates{display:grid;gap:8px;margin-top:6px}
 .nd-date{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:center;justify-content:space-between;min-height:52px;padding:8px 12px;border:2px solid currentColor;border-radius:10px;background:transparent;color:inherit;font:inherit;text-align:left}
 .nd-date b{font-size:1.05em}.nd-date span{font-size:.85em}
@@ -1187,6 +1208,17 @@ svg.leaflet-image-layer.leaflet-interactive path {
       <p class="tiny muted" style="margin:0">Data stays in this browser (localStorage); Account / Sync optionally syncs it across devices. Saved › Backup still works. <span id="verLbl"></span></p>
     </div>
   </div>
+  <div class="card" id="mktCard">
+    <h2>Market Prices Ticker</h2>
+    <label class="chk"><input type="checkbox" id="mktOn"> Show Scrolling Market Prices</label>
+    <div id="mktOpts" class="grid" style="margin-top:8px">
+      <div><span class="f">Locations (Up to 4)</span><div id="mktLocs" class="mkt-locs"></div>
+        <div class="mkt-add"><select id="mktCo" aria-label="Elevator Company"></select><select id="mktLoc" aria-label="Elevator Location"></select><button type="button" class="btn sm" id="mktAdd">Add</button></div></div>
+      <div><span class="f">Crops</span><div id="mktCrops" class="mkt-crops"></div></div>
+      <div class="row"><button type="button" class="btn alt sm" id="mktRefresh">🔄 Refresh Now</button><span class="tiny muted" id="mktStatus" aria-live="polite"></span></div>
+      <p class="tiny muted" style="margin:0">Posted cash bids straight from each elevator's public cash-bid page (Ritzville Warehouse, HighLine Grain Growers, PNW Farmers Cooperative). Each price shows its posting date and time and the source. Bids change without notice; confirm with the elevator before you sell. Checks about every 30 minutes while the app is open.</p>
+    </div>
+  </div>
 </section>
 
 <section class="view" id="v-saved" role="tabpanel">
@@ -1256,7 +1288,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
    3. Storage (localStorage)
    4. UI: Mix, Order/Jar test, Lookup (EPA), Saved, Print
    ===================================================================== */
-const APP_VERSION = "2.17.5";
+const APP_VERSION = "2.17.6";
 const TM = window.TM = {};
 
 /* ---------- 1. Constants ---------- */
@@ -3239,7 +3271,7 @@ function renderFields(){
   $("fieldImport").onclick = ()=>{ IMP.preset = null; $("fieldFile").click(); };
   el.querySelectorAll("details.fld").forEach(d=>d.addEventListener("toggle", ()=>{ d.open ? FLD.open.add(d.dataset.key) : FLD.open.delete(d.dataset.key); }));
   el.querySelectorAll(".fld-acts [data-act]").forEach(b=>b.onclick=()=>{ const x = S.fields.find(y=>y.id===b.closest(".fld-acts").dataset.id); if (!x) return;
-    if (b.dataset.act==="open") fieldDlg(x); else if (b.dataset.act==="ndvi") TM.ndviDlg(x); else logAtField(x); });
+    if (b.dataset.act==="open") TM.fieldFullScreen.open(x); else if (b.dataset.act==="ndvi") TM.ndviDlg(x); else logAtField(x); });
   TM.bindLogRows(el);
 }
 /* ＋ / ✎ for grower and farm: a compact inline panel under that row (only one open at a time) */
@@ -3337,7 +3369,7 @@ function fieldSprays(f){
 }
 function fieldDlg(f){
   const sh = TM.fields2.fieldShape(f), sp = fieldSprays(f);
-  openDlg("📍 "+f.name, `<div class="fmap sm" id="fdMap"></div>
+  openDlg("📍 "+f.name, `<div class="fmap sm" id="fdMap"></div><button class="btn alt block" id="fdFull" style="margin-top:8px">⛶ Full Screen Map</button>
     ${sh?`<button class="btn block" id="fdNdvi" style="margin-top:8px">🛰 NDVI Satellite Images${TM.fields2.ndvi.hasNew(f)?" · New":""}</button>`:`<p class="tiny muted" style="margin:8px 0 0">Add a boundary (✏️ Edit field › Draw boundary, or import a shapefile) to see NDVI images.</p>`}
     <table class="kv" style="margin-top:8px">${f.src&&f.src.type==="shapefile"?`<tr><th>Boundary</th><td>Shapefile${f.src.file?" “"+esc(f.src.file)+"”":""}${f.shape?" · "+f.shape.length+" part"+(f.shape.length===1?"":"s"):""}<br><span class="tiny muted">${esc(f.src.crs||"")}</span></td></tr>`:""}${sp.length?`<tr><th>Recent Sprays</th><td>${sp.map(r=>`${esc(dtTxt(r.dt))}${r.mixName?" · "+esc(r.mixName):""}`).join("<br>")}</td></tr>`:""}<tr><th>Location</th><td>${locSummary({lat:f.lat, lon:f.lon, boundary:f.boundary, bAcres:f.acres})}</td></tr></table>
     <div style="margin-top:10px">${gfPickerHtml("fd")}</div><p class="tiny muted" id="fdGFMsg" style="margin:4px 0 0" aria-live="polite"></p>
@@ -3345,6 +3377,7 @@ function fieldDlg(f){
     <div class="casc-del" style="margin-top:8px"><span class="tiny muted">Spray records are never deleted — they move to Unassigned.</span><button class="btn danger sm" id="fdDel">🗑 Delete</button></div>`);
   miniMap("fdMap", {lat:f.lat, lon:f.lon, boundary:f.boundary, shape:f.shape});
   if ($("fdNdvi")) $("fdNdvi").onclick = ()=>TM.ndviDlg(f);
+  $("fdFull").onclick = ()=>TM.fieldFullScreen.open(f);
   $("fdLog").onclick = ()=>{ closeDlg(); logAtField(f); };
   bindGfPicker("fd", f.grower, f.farm, gf=>{ if ((f.grower||"")===gf.grower && (f.farm||"")===gf.farm) return;
     GF.touchField(f); f.grower = gf.grower; f.farm = gf.farm; persist("fields"); GF.ensure(gf.grower, gf.farm); NAV.showField(f); renderFields(); $("fdGFMsg").textContent = "✓ Saved"+(gf.grower||gf.farm ? " · "+gfTxt(gf) : " · no grower / farm"); });
@@ -5923,6 +5956,212 @@ async function ndviDlg(f, force){
 }
 TM.ndviDlg = ndviDlg;
 
+/* ---- v2.17.6 Field Map ⛶ Full Screen (Brian: the 🗺 Map button next to 🛰 NDVI on a selected field opened the small
+   square map; he wants a proper big view). Same treatment as NDVI Full Screen: whole-screen satellite map with the field
+   boundary, pinch zoom / pan, a big ✕, and quick actions (NDVI, Log Spray, Field Details, Directions). Uses the browser
+   Fullscreen API where it works; iPhone/iPad get a fixed full-viewport layer. Safe-area insets respected. */
+const FFS = { open:false, W:null, api:false, f:null, fit:null };
+function fieldFsCenter(f, shape){
+  if (shape){ const b = FX.bbox(shape); return { lat:(b.s+b.n)/2, lon:(b.w+b.e)/2 }; }
+  return GEO.valid(f.lat, f.lon) ? { lat:+f.lat, lon:+f.lon } : null;
+}
+function fieldFsOpen(f){
+  if (!f) return; if (FFS.open) fieldFsClose();
+  const shape = FX.fieldShape(f), c = fieldFsCenter(f, shape);
+  if (!c){ toast("This field has no map location yet. Use ✏️ Rename, Map & Boundary to set it."); return; }
+  const host = $("dlg") && $("dlg").open ? $("dlg") : document.body;
+  const el = document.createElement("div"); el.id = "fldFs"; el.className = "nd-fs fld-fs"; el.setAttribute("role", "dialog"); el.setAttribute("aria-modal", "true"); el.setAttribute("aria-label", "Field Map · "+f.name);
+  const gf = [f.grower, f.farm].filter(Boolean).join(" › "), ac = isFinite(+f.acres) && +f.acres>0 ? fmt(+f.acres, 1)+" ac" : "";
+  const dir = "https://maps.apple.com/?daddr="+c.lat.toFixed(5)+","+c.lon.toFixed(5)+"&dirflg=d";
+  el.innerHTML = `<div class="fmap nd-fs-map" id="fldFsMap"></div>
+    <div class="nd-fs-top"><div class="nd-fs-info" id="fldFsInfo"><div><b>${esc(f.name)}</b>${ac?" · "+esc(ac):""}</div>${gf?`<div>${esc(gf)}</div>`:""}${shape?"":`<div class="tiny">No boundary yet · pin only</div>`}</div><button type="button" class="nd-fs-btn" id="fldFsX" aria-label="Close Map" title="Close Map">✕</button></div>
+    <div class="nd-fs-bot"><div class="nd-fs-dates fld-fs-acts" role="group" aria-label="Field Actions">${shape?`<button type="button" class="nd-fs-date" id="fldFsNdvi">🛰 NDVI</button>`:""}<button type="button" class="nd-fs-date" id="fldFsLog">📝 Log Spray</button><button type="button" class="nd-fs-date" id="fldFsDet">ℹ️ Field Details</button><a class="nd-fs-date" id="fldFsDir" href="${dir}" target="_blank" rel="noopener">📍 Directions</a></div></div>`;
+  host.appendChild(el); document.body.classList.add("nd-fs-on");
+  FFS.open = true; FFS.f = f;
+  const W = FFS.W = makeMap($("fldFsMap"), {loc:c, readOnly:true});
+  if (W){
+    let fitB = null;
+    if (shape){ const p = L.polygon(shape, {color:"#ffd34d", weight:3, fillOpacity:.12, interactive:false}).addTo(W.map); fitB = p.getBounds(); }
+    else W.setPin(c.lat, c.lon);
+    const fit = ()=>{ if (!FFS.W) return; W.map.invalidateSize(); if (fitB) W.map.fitBounds(fitB, {padding:[28,28], maxZoom:18}); else W.map.setView([c.lat, c.lon], 16); };
+    W.later(fit, 60); FFS.fit = fit; }
+  const done = fn => ()=>{ fieldFsClose(); fn(); };
+  $("fldFsX").onclick = fieldFsClose;
+  if ($("fldFsNdvi")) $("fldFsNdvi").onclick = done(()=>{ if ($("dlg") && $("dlg").open) closeDlg(); TM.ndviDlg(f); });
+  $("fldFsLog").onclick = done(()=>{ if ($("dlg") && $("dlg").open) closeDlg(); logAtField(f); });
+  $("fldFsDet").onclick = done(()=>{ if (!($("dlg") && $("dlg").open && $("fdMap"))) fieldDlg(f); });
+  if (host!==document.body){ const prev = TM.dlgCleanup; TM.dlgCleanup = ()=>{ fieldFsClose(); if (prev) prev(); }; }
+  FFS.api = false; const req = el.requestFullscreen || el.webkitRequestFullscreen;
+  if (req && (document.fullscreenEnabled || document.webkitFullscreenEnabled)){
+    try { const p = req.call(el); FFS.api = true; if (p && p.then) p.then(()=>FFS.fit && setTimeout(FFS.fit, 80)).catch(()=>{ FFS.api = false; }); } catch(e){ FFS.api = false; } }
+  setTimeout(()=>{ const x = $("fldFsX"); if (x) x.focus({preventScroll:true}); }, 30);
+}
+function fieldFsClose(){
+  if (!FFS.open) return; FFS.open = false;
+  if (FFS.api && fsEl()){ try { const x = document.exitFullscreen || document.webkitExitFullscreen; const p = x && x.call(document); if (p && p.catch) p.catch(()=>{}); } catch(e){} }
+  FFS.api = false;
+  if (FFS.W){ try { FFS.W.destroy(); } catch(e){} } FFS.W = null; FFS.f = null; FFS.fit = null;
+  const el = $("fldFs"); if (el) el.remove(); if (!NFS.open) document.body.classList.remove("nd-fs-on");
+}
+["fullscreenchange","webkitfullscreenchange"].forEach(t=>document.addEventListener(t, ()=>{ if (FFS.open && FFS.api && !fsEl()) fieldFsClose(); else if (FFS.open && FFS.fit) setTimeout(FFS.fit, 50); }));
+window.addEventListener("orientationchange", ()=>{ if (FFS.open && FFS.fit) setTimeout(FFS.fit, 250); });
+document.addEventListener("keydown", e=>{ if (FFS.open && e.key==="Escape"){ e.preventDefault(); e.stopPropagation(); fieldFsClose(); } }, true);
+TM.fieldFullScreen = { open:fieldFsOpen, close:fieldFsClose, isOpen:()=>FFS.open };
+
+/* ---- v2.17.6 Market prices ticker (Brian: local cash prices scrolling across the top; pick crops and where from; can turn off).
+   Real posted cash bids, fetched straight from each elevator's public cash-bid page (the Bushel/FarmCentric pages these
+   co-ops use allow browser requests). Nothing is ever estimated: every price shows its posting date/time and source, and
+   a failed source says so. Off by default. Settings (on/off, locations, crops) live in Settings and sync with sign-in;
+   the fetched bids and the day-to-day history stay on this device. */
+const MKT_CACHE_KEY = "tankmix.mktCache.v1", MKT_HIST_KEY = "tankmix.mktHist.v1";
+const MKT = TM.mkt = {
+  REFRESH_MIN: 30, MAX_LOCS: 4,
+  SOURCES: {
+    rwc: { name:"Ritzville Warehouse", short:"RWC", url:id=>"https://ritzwhse.com/cblocembed-"+id,
+      locs:[[3028,"Ritzville"],[2614,"Odessa"],[2997,"Lind"],[1459,"Templin Terminal"],[1472,"Ralston"],[1476,"Keystone"],[1479,"Edens"],[1480,"Edwall"],[1481,"Washtucna"],[1482,"Fletcher"],[1485,"Lacrosse"],[1486,"Dusty"],[1489,"Moody"],[1490,"Batum"],[1493,"Tower"],[1494,"Wilson Creek"],[1497,"Lamont"],[1498,"Revere"],[2601,"Benge"],[2602,"Maier"],[2608,"Sandhills"],[2611,"Ruff"],[2615,"Schmierer"],[2618,"Stratford"],[2619,"Wye"],[2622,"Windust"],[2998,"Bauer"],[2999,"Phillips"],[3000,"Gering"],[3002,"Pence"],[3003,"Pizarro"],[3004,"Schrag"],[3005,"Maizena"]] },
+    hlgg: { name:"HighLine Grain Growers", short:"HighLine", url:id=>"https://highlinegrain.com/cblocembed-"+id,
+      locs:[[687,"Odessa"],[709,"Davenport"],[688,"Reardan"],[682,"Creston"],[683,"Wilbur"],[710,"Almira"],[693,"Harrington"],[680,"Coulee City"],[713,"Hartline"],[692,"Ephrata"],[686,"Marlin"],[696,"Lamona"],[699,"Packard"],[685,"Wheatridge"],[673,"Mansfield"],[677,"Waterville"],[675,"Brewster"],[678,"Wenatchee"],[1469,"Four Lakes"],[690,"Downs"],[691,"Egypt"],[697,"Lauer"],[698,"Mohler"],[700,"Reiman"],[701,"Rocklyn"],[702,"Schoonover"],[703,"Hite"],[704,"Eleanor"],[705,"Gravelle"],[707,"Waukon"],[711,"North Station"],[712,"South Station"],[879,"Bluestem"],[880,"Omans"],[881,"Mondovi"],[888,"Govan"],[889,"Hanson"],[890,"Highland"],[896,"Withrow"],[898,"Douglas"]] },
+    pnwc: { name:"PNW Farmers Cooperative", short:"PNW Co-op", url:id=>"https://pnw.coop/cblocembed-"+id,
+      locs:[[1193,"PNW Cash Bids"]] }
+  },
+  CROPS: [["sww","Soft White Wheat","SWW"],["club","Club Wheat","Club"],["hrw","Hard Red Winter","HRW"],["dns","Dark Northern Spring","DNS"],["barley","Barley","Barley"],["canola","Canola","Canola"],["trit","Triticale","Triticale"],["pulse","Peas, Lentils & Garbanzos","Pulses"]],
+  DEFAULTS: { on:false, locs:[{src:"rwc", id:3028},{src:"hlgg", id:687},{src:"pnwc", id:1193}], crops:["sww","hrw","dns"] },
+  data: {}, err: {}, busy:false, timer:null, sig:""
+};
+MKT.cropOf = label => { const s = String(label||"");
+  if (/\b(SWH|SWW)\b|soft\s*white/i.test(s)) return "sww"; if (/\bWHC\b|club/i.test(s)) return "club";
+  if (/\bHRW\b|hard\s*red\s*winter/i.test(s)) return "hrw"; if (/\b(DNS|HRS|NS\/DNS)\b|northern\s*spring/i.test(s)) return "dns";
+  if (/\bBLY\b|barley/i.test(s)) return "barley"; if (/\b(CAN|CNG)\b|canola/i.test(s)) return "canola"; if (/\bTRIT|triticale/i.test(s)) return "trit";
+  if (/pea|lentil|garb|bean/i.test(s)) return "pulse"; return ""; };
+MKT.prefs = () => { const p = S.settings.mkt || {}; return { on:!!p.on, locs:Array.isArray(p.locs) ? p.locs : MKT.DEFAULTS.locs.slice(), crops:Array.isArray(p.crops) ? p.crops : MKT.DEFAULTS.crops.slice() }; };
+MKT.save = p => { S.settings.mkt = { on:!!p.on, locs:p.locs.slice(0, MKT.MAX_LOCS), crops:p.crops.slice() }; persist("settings"); };
+MKT.locName = l => { const s = MKT.SOURCES[l.src]; const x = s && s.locs.find(z=>z[0]===+l.id); return x ? x[1] : "Location "+l.id; };
+MKT.key = l => l.src+":"+l.id;
+const mktNum = t => { const m = /-?\d+(?:\.\d+)?/.exec(String(t||"").replace(/,/g,"")); return m ? +m[0] : NaN; };
+const MONTHS = {january:1,february:2,march:3,april:4,may:5,june:6,july:7,august:8,september:9,october:10,november:11,december:12};
+// "Cash bids as of Friday, November 13, 2026, at 09:06 AM." / "Cash bids for Friday, November 13, 2026"
+MKT.asOf = txt => { const m = /([A-Za-z]+)\s+(\d{1,2}),\s*(\d{4})(?:,?\s*at\s*(\d{1,2}):(\d{2})\s*([AP]M))?/i.exec(String(txt||"")); if (!m || !MONTHS[m[1].toLowerCase()]) return null;
+  let h = m[4]!=null ? +m[4]%12 + (/p/i.test(m[6])?12:0) : null; const pad = x=>String(x).padStart(2,"0");
+  return { date:m[3]+"-"+pad(MONTHS[m[1].toLowerCase()])+"-"+pad(m[2]), time:h==null ? "" : pad(h)+":"+m[5] }; };
+MKT.parse = html => { const doc = new DOMParser().parseFromString(String(html||""), "text/html"), tx = n => n ? n.textContent.replace(/\s+/g," ").trim() : "";
+  return [...doc.querySelectorAll(".cashBidLocation")].map(Lc=>{ const asTxt = tx(Lc.querySelector(".fcControlsSectionHeader"));
+    return { name:tx(Lc.querySelector("h2")), asTxt, asof:MKT.asOf(asTxt),
+      coms:[...Lc.querySelectorAll(".cbCommodity")].map(C=>{ const label = tx(C.querySelector("h3"));
+        const rows = [...C.querySelectorAll("ul")].filter(u=>!u.querySelector("h4")).map(u=>{ const g = k => tx(u.querySelector("li.c"+k));
+          return { del:g(1), bid:mktNum(g(2)), basis:g(3), fut:g(4), chg:g(5), futMonth:g(6), last:g(7) }; }).filter(r=>r.del && isFinite(r.bid));
+        return { label, crop:MKT.cropOf(label), rows }; }).filter(c=>c.rows.length) }; }); };
+MKT.unit = (crop, label) => /cwt/i.test(label) ? "/cwt" : /ton/i.test(label) ? "/ton" : ["sww","club","hrw","dns"].includes(crop) ? "/bu" : "";
+// futures change on the page: "+0.09" ($) at some co-ops, "+9.00" (¢) at others → cents
+MKT.futCents = t => { const v = mktNum(t); if (!isFinite(v)) return null; return Math.round((Math.abs(v)<1 ? v*100 : v)*100)/100; };
+const mktRead = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) || d; } catch(e){ return d; } };
+const mktWrite = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e){} };
+// remember each posted bid by its posting date (this device) so the ticker can show the change vs the prior posting day
+MKT.remember = (lk, loc) => { if (!loc.asof) return; const H = mktRead(MKT_HIST_KEY, {});
+  loc.coms.forEach(c=>c.rows.forEach(r=>{ const k = lk+"|"+c.label+"|"+r.del, h = H[k] = H[k] || {}; h[loc.asof.date] = r.bid;
+    const ds = Object.keys(h).sort(); while (ds.length>8) delete h[ds.shift()]; }));
+  mktWrite(MKT_HIST_KEY, H); };
+MKT.prior = (lk, label, del, date) => { const h = mktRead(MKT_HIST_KEY, {})[lk+"|"+label+"|"+del]; if (!h || !date) return null;
+  const ds = Object.keys(h).filter(d=>d<date).sort(); return ds.length ? { date:ds[ds.length-1], bid:h[ds[ds.length-1]] } : null; };
+MKT.fetchLoc = async l => {
+  const s = MKT.SOURCES[l.src]; if (!s) throw new Error("Unknown source");
+  const ctl = new AbortController(), t = setTimeout(()=>ctl.abort(), 20000); let r;
+  try { r = await fetch(s.url(l.id), {signal:ctl.signal, cache:"no-store", credentials:"omit"}); }
+  catch(e){ throw new Error(navigator.onLine===false ? "offline" : e && e.name==="AbortError" ? "no answer in 20 s" : "couldn't reach "+s.name); }
+  finally { clearTimeout(t); }
+  if (!r.ok) throw new Error(s.name+" HTTP "+r.status);
+  const locs = MKT.parse(await r.text()); if (!locs.length || !locs[0].coms.length) throw new Error("no cash bids posted on "+s.name+"'s page");
+  return locs[0];
+};
+MKT.refresh = async force => {
+  const p = MKT.prefs(); if (!p.on && !force) return; if (MKT.busy) return; MKT.busy = true; MKT.status(); 
+  const cache = mktRead(MKT_CACHE_KEY, {});
+  await Promise.all(p.locs.map(async l=>{ const k = MKT.key(l);
+    try { const loc = await MKT.fetchLoc(l); MKT.remember(k, loc); cache[k] = { at:Date.now(), loc }; delete MKT.err[k]; }
+    catch(e){ MKT.err[k] = e.message || String(e); } }));
+  Object.keys(cache).forEach(k=>{ if (!p.locs.some(l=>MKT.key(l)===k) && Date.now()-cache[k].at > 7*86400000) delete cache[k]; });
+  mktWrite(MKT_CACHE_KEY, cache); MKT.data = cache; MKT.busy = false; MKT.render(); MKT.status();
+};
+const mktDay = d => { if (!d) return ""; const [y, m, dd] = d.split("-"); return (+m)+"/"+(+dd); };
+const mktTime = t => { if (!t) return ""; let [h, m] = t.split(":").map(Number); const ap = h<12 ? "AM" : "PM"; h = h%12||12; return h+":"+String(m).padStart(2,"0")+" "+ap; };
+MKT.when = loc => loc.asof ? mktDay(loc.asof.date)+(loc.asof.time ? " "+mktTime(loc.asof.time) : "") : "date not shown";
+// one ticker item per chosen crop per location: the nearest delivery month
+MKT.items = () => { const p = MKT.prefs(), out = [];
+  p.locs.forEach(l=>{ const k = MKT.key(l), c = MKT.data[k], s = MKT.SOURCES[l.src]; if (!s) return;
+    if (!c || !c.loc){ if (MKT.err[k]) out.push({ err:true, txt:MKT.locName(l)+": "+MKT.err[k], src:s.short }); return; }
+    const loc = c.loc;
+    const chosen = loc.coms.filter(cm=>p.crops.includes(cm.crop)), many = c0 => chosen.filter(x=>x.crop===c0).length>1;
+    chosen.forEach(cm=>{ const r = cm.rows[0], pr = MKT.prior(k, cm.label, r.del, loc.asof && loc.asof.date);
+      const short = (MKT.CROPS.find(x=>x[0]===cm.crop)||[])[2] || cm.label, crop = cm.crop==="pulse" ? cm.label : many(cm.crop) ? short+" ("+cm.label+")" : short;
+      let chg = null, chgTxt = "";
+      if (pr && isFinite(pr.bid)){ chg = Math.round((r.bid-pr.bid)*10000)/100; chgTxt = (chg>0?"▲ ":chg<0?"▼ ":"")+(chg===0?"Unch":Math.abs(chg).toFixed(Math.abs(chg)%1?1:0)+"¢")+" vs "+mktDay(pr.date); }
+      else { const fc = MKT.futCents(r.chg); if (fc!=null){ chg = fc; chgTxt = "Fut "+(fc>0?"▲ ":fc<0?"▼ ":"")+(fc===0?"Unch":Math.abs(fc).toFixed(Math.abs(fc)%1?1:0)+"¢"); } }
+      out.push({ crop, label:cm.label, place:MKT.locName(l), bid:r.bid, unit:MKT.unit(cm.crop, cm.label), del:r.del, chg, chgTxt, when:MKT.when(loc), src:s.short, stale:!!MKT.err[k] }); }); });
+  return out; };
+MKT.itemHtml = it => it.err ? `<span class="mkt-it mkt-err">⚠ ${esc(it.txt)}</span>`
+  : `<span class="mkt-it"><b>${esc(it.crop)}</b> ${esc(it.place)} <b class="mkt-px">$${it.bid.toFixed(2)}</b>${esc(it.unit)} <span class="mkt-del">${esc(it.del)}</span>${it.chgTxt?` <span class="${it.chg>0?"mkt-up":it.chg<0?"mkt-dn":"mkt-un"}">${esc(it.chgTxt)}</span>`:""} <span class="mkt-src">· ${esc(it.src)} ${esc(it.when)}${it.stale?" · Saved":""}</span></span>`;
+MKT.bar = () => { let b = $("mktBar"); if (b) return b; const h = document.querySelector("header.top"); if (!h) return null;
+  b = document.createElement("div"); b.id = "mktBar"; b.className = "mkt-bar"; b.setAttribute("role", "button"); b.setAttribute("tabindex", "0"); b.setAttribute("aria-label", "Market Prices · Tap for Details");
+  b.innerHTML = `<div class="mkt-track" id="mktTrack"></div>`; h.appendChild(b);
+  b.onclick = ()=>MKT.dlg(); b.onkeydown = e=>{ if (e.key==="Enter" || e.key===" "){ e.preventDefault(); MKT.dlg(); } };
+  return b; };
+MKT.render = () => { const p = MKT.prefs(); let b = $("mktBar");
+  const hd = document.querySelector("header.top");
+  if (!p.on){ if (hd) hd.classList.remove("has-mkt"); if (b){ b.remove(); window.dispatchEvent(new Event("resize")); } return; }
+  if (hd) hd.classList.add("has-mkt");
+  const fresh = !b; b = MKT.bar(); if (!b) return; const items = MKT.items(), tr = $("mktTrack");
+  const body = items.length ? items.map(MKT.itemHtml).join('<span class="mkt-sep" aria-hidden="true">•</span>')
+    : `<span class="mkt-it">${MKT.busy ? "Getting cash bids…" : p.locs.length && p.crops.length ? "No posted bids yet for the chosen crops. Tap for details." : "Pick locations and crops in Settings › Market Prices Ticker."}</span>`;
+  tr.innerHTML = `<span class="mkt-run">${body}<span class="mkt-sep" aria-hidden="true">•</span></span><span class="mkt-run" aria-hidden="true">${body}<span class="mkt-sep">•</span></span>`;
+  const len = tr.textContent.length/2; tr.style.animationDuration = Math.max(20, Math.round(len*0.28))+"s";
+  b.title = items.filter(i=>!i.err).map(i=>i.crop+" "+i.place+" $"+i.bid.toFixed(2)+" "+i.when).join(" · ");
+  if (fresh) window.dispatchEvent(new Event("resize")); };
+MKT.dlg = () => { const p = MKT.prefs();
+  const body = p.locs.map(l=>{ const k = MKT.key(l), c = MKT.data[k], s = MKT.SOURCES[l.src]; if (!s) return "";
+    const head = `<h3 style="margin:12px 0 4px">${esc(MKT.locName(l))} <span class="tiny muted">· ${esc(s.name)}</span></h3>`;
+    if (!c || !c.loc) return head+`<p class="small warn">${MKT.err[k] ? "⚠ "+esc(MKT.err[k]) : "Not loaded yet."}</p>`;
+    const loc = c.loc, coms = loc.coms.filter(cm=>p.crops.includes(cm.crop));
+    return head+`<p class="tiny muted" style="margin:0 0 4px">${esc(loc.asTxt||"")}${MKT.err[k]?` · <span class="warn">Couldn't refresh (${esc(MKT.err[k])}); showing what was saved ${esc(new Date(c.at).toLocaleString())}</span>`:""} · <a href="${esc(s.url(l.id))}" target="_blank" rel="noopener">Source Page ↗</a></p>`+
+      (coms.length ? coms.map(cm=>`<div class="mkt-tbl"><b>${esc(cm.label)}</b><table class="kv"><tr><th>Delivery</th><th>Bid</th><th>Basis</th><th>Fut Chg</th></tr>${cm.rows.map(r=>`<tr><td>${esc(r.del)}</td><td><b>$${r.bid.toFixed(2)}</b>${esc(MKT.unit(cm.crop, cm.label))}</td><td>${esc(r.basis||"—")}</td><td>${esc(r.chg||"—")}</td></tr>`).join("")}</table></div>`).join("")
+        : `<p class="small muted">None of the chosen crops are posted here.</p>`); }).join("");
+  openDlg("📈 Market Prices", `${body||'<p class="small">No locations chosen.</p>'}
+    <p class="tiny muted" style="margin-top:10px">Posted cash bids from each elevator's own public cash-bid page (Bushel). Bids are subject to change without notice and are delayed; confirm with the elevator before you sell. "vs" changes compare with the bid this device saw on the prior posting day; "Fut" is the futures move the elevator shows.</p>
+    <div class="grid g2" style="margin-top:8px"><button class="btn alt" id="mktDlgRef">🔄 Refresh Now</button><button class="btn alt" id="mktDlgSet">⚙️ Ticker Settings</button></div>`);
+  $("mktDlgRef").onclick = async ()=>{ $("mktDlgRef").disabled = true; await MKT.refresh(true); closeDlg(); MKT.dlg(); };
+  $("mktDlgSet").onclick = ()=>{ closeDlg(); showTab("set"); setTimeout(()=>{ const c = $("mktCard"); if (c && c.scrollIntoView) c.scrollIntoView({block:"start"}); }, 50); }; };
+MKT.status = () => { const el = $("mktStatus"); if (!el) return; const p = MKT.prefs();
+  if (MKT.busy){ el.textContent = "Getting cash bids…"; return; }
+  const ok = p.locs.filter(l=>MKT.data[MKT.key(l)] && !MKT.err[MKT.key(l)]).length, bad = p.locs.filter(l=>MKT.err[MKT.key(l)]);
+  el.innerHTML = p.locs.length ? esc(ok+" of "+p.locs.length+" locations loaded")+(bad.length ? ` · <span class="warn">${esc(bad.map(l=>MKT.locName(l)+": "+MKT.err[MKT.key(l)]).join("; "))}</span>` : "") : ""; };
+MKT.settingsRender = () => { const card = $("mktCard"); if (!card) return; const p = MKT.prefs();
+  $("mktOn").checked = p.on; $("mktOpts").classList.toggle("mkt-off", !p.on);
+  $("mktLocs").innerHTML = p.locs.length ? p.locs.map((l,i)=>`<div class="mkt-loc"><span><b>${esc(MKT.locName(l))}</b> <span class="tiny muted">· ${esc((MKT.SOURCES[l.src]||{}).name||"")}</span></span><button type="button" class="btn alt sm" data-rm="${i}" aria-label="Remove ${esc(MKT.locName(l))}">✕</button></div>`).join("") : `<p class="tiny muted" style="margin:0">No locations yet.</p>`;
+  $("mktLocs").querySelectorAll("[data-rm]").forEach(b=>b.onclick=()=>{ const q = MKT.prefs(); q.locs.splice(+b.dataset.rm, 1); MKT.save(q); MKT.settingsRender(); MKT.render(); });
+  const co = $("mktCo"); if (!co.options.length) co.innerHTML = Object.entries(MKT.SOURCES).map(([k,s])=>`<option value="${k}">${esc(s.name)}</option>`).join("");
+  const s = MKT.SOURCES[co.value] || MKT.SOURCES.rwc;
+  $("mktLoc").innerHTML = s.locs.slice().sort((a,b)=>a[1].localeCompare(b[1])).map(x=>`<option value="${x[0]}">${esc(x[1])}</option>`).join("");
+  $("mktAdd").disabled = p.locs.length >= MKT.MAX_LOCS;
+  $("mktCrops").innerHTML = MKT.CROPS.map(c=>`<label class="chk"><input type="checkbox" data-crop="${c[0]}"${p.crops.includes(c[0])?" checked":""}> ${esc(c[1])}</label>`).join("");
+  $("mktCrops").querySelectorAll("[data-crop]").forEach(x=>x.onchange=()=>{ const q = MKT.prefs(); q.crops = MKT.CROPS.map(c=>c[0]).filter(k=>k===x.dataset.crop ? x.checked : q.crops.includes(k)); MKT.save(q); MKT.render(); });
+  MKT.status(); };
+MKT.bindSettings = () => { if (!$("mktCard")) return;
+  $("mktOn").onchange = e=>{ const q = MKT.prefs(); q.on = e.target.checked; MKT.save(q); MKT.settingsRender(); MKT.render(); if (q.on) MKT.refresh(); };
+  $("mktCo").onchange = ()=>MKT.settingsRender();
+  $("mktAdd").onclick = ()=>{ const q = MKT.prefs(), l = {src:$("mktCo").value, id:+$("mktLoc").value};
+    if (q.locs.some(x=>MKT.key(x)===MKT.key(l))){ toast("Already added"); return; } if (q.locs.length >= MKT.MAX_LOCS){ toast("Up to "+MKT.MAX_LOCS+" locations"); return; }
+    q.locs.push(l); MKT.save(q); MKT.settingsRender(); MKT.render(); if (q.on) MKT.refresh(); };
+  $("mktRefresh").onclick = ()=>MKT.refresh(true);
+  MKT.settingsRender(); };
+MKT.sigOf = () => JSON.stringify(MKT.prefs());
+MKT.tick = () => { const sg = MKT.sigOf(); if (sg!==MKT.sig){ const was = MKT.sig; MKT.sig = sg; MKT.settingsRender(); MKT.render(); if (was && MKT.prefs().on) MKT.refresh(); return; }
+  if (!MKT.prefs().on || document.visibilityState==="hidden") return;
+  const p = MKT.prefs(), oldest = Math.min(...p.locs.map(l=>(MKT.data[MKT.key(l)]||{}).at||0));
+  if (Date.now()-oldest > MKT.REFRESH_MIN*60000) MKT.refresh(); };
+MKT.init = () => { MKT.data = mktRead(MKT_CACHE_KEY, {}); MKT.sig = MKT.sigOf(); MKT.bindSettings(); MKT.render();
+  if (MKT.prefs().on) MKT.refresh();
+  if (!MKT.timer) MKT.timer = setInterval(MKT.tick, 60000);
+  document.addEventListener("visibilitychange", ()=>{ if (document.visibilityState==="visible") MKT.tick(); }); };
+TM.mktInit = MKT.init;
+
 /* ---------- Spray log ---------- */
 const LOGF = { q:"", gf:"", editing:null, all:false };
 const nowLocal = () => { const d = new Date(); d.setMinutes(d.getMinutes()-d.getTimezoneOffset()); return d.toISOString().slice(0,16); };
@@ -6314,7 +6553,7 @@ function init(){
   if (typeof wsdaLoad==="function") wsdaLoad().catch(()=>{});
   bindMixInputs(); bindSaved(); bindLibrary(); bindSettings(); bindPrint();
   loadMixIntoForm('auto'); renderSaved(); renderLibrary(); renderCal(); renderLogView();
-  initFieldReliability(); TM.syncInit();
+  initFieldReliability(); TM.syncInit(); if (TM.mktInit) TM.mktInit();
   setTimeout(()=>{ try { TM.fields2.ndvi.background(); } catch(e){} }, 6000);   // v2.17: light check for new NDVI dates on fields already using NDVI
   window.addEventListener("afterprint", ()=>{ TM.printMode = null; });
   if ("serviceWorker" in navigator && /^https?:$/.test(location.protocol) && document.querySelector('link[rel="manifest"]') && !window.TM_PREVIEW){
