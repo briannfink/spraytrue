@@ -1245,7 +1245,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
    3. Storage (localStorage)
    4. UI: Mix, Order/Jar test, Lookup (EPA), Saved, Print
    ===================================================================== */
-const APP_VERSION = "2.17.3";
+const APP_VERSION = "2.17.4";
 const TM = window.TM = {};
 
 /* ---------- 1. Constants ---------- */
@@ -5575,11 +5575,91 @@ NDVI.raster = (red, nir, scl, shape, P, scale, offset, maxDim=360) => {
   }
   return { w:W, h:H, px, bounds:[[b.s, b.w],[b.n, b.e]] };
 };
+/* ---- v2.17.4 smooth NDVI (like OneSoil: same 10 m Sentinel-2 values drawn on a ~2.5 m grid) ----
+   1) NDVI.grid keeps the native 10 m NDVI values (cloud / no-data = NODATA) — small, cached with the image.
+   2) NDVI.render resamples those VALUES bilinearly onto a fine lat/lon grid before colouring. Only clear pixels are
+      blended (weights renormalised over valid neighbours); a spot is cloud/no-data when valid weight < 0.5, so cloud
+      never bleeds into crop values and the cloud mask stays (with a softened edge). Continuous colour ramp.
+   3) The field boundary is clipped with anti-aliased scanline coverage (4 sub-rows, fractional span ends), so the edge
+      follows the drawn boundary instead of 10 m stair-steps. Output capped (≤ 1024 px side, ≤ 0.8 MP) for iPhone.
+   Mean NDVI / % clear / histogram still come from NDVI.compute on the original 10 m pixels — numbers don't change. */
+NDVI.NODATA = -32768;
+NDVI.grid = (red, nir, scl, P, scale, offset, epsg) => {
+  const q = new Int16Array(red.w*red.h);
+  for (let r=0; r<red.h; r++) for (let c=0; c<red.w; c++){
+    const x = red.x0+(c+.5)*red.sx, y = red.y0-(r+.5)*red.sy; let s = 4;
+    if (scl){ const sc = Math.floor((x-scl.x0)/scl.sx), sr = Math.floor((scl.y0-y)/scl.sy); s = sc>=0&&sr>=0&&sc<scl.w&&sr<scl.h ? scl.data[sr*scl.w+sc] : 0; }
+    const R = red.data[r*red.w+c], N = nir.data[r*nir.w+c], v = NDVI.value(R, N, scale, offset);
+    q[r*red.w+c] = NDVI.CLEAR.has(s) && R && N && isFinite(v) ? Math.max(-10000, Math.min(10000, Math.round(v*10000))) : NDVI.NODATA;
+  }
+  return { w:red.w, h:red.h, x0:red.x0, y0:red.y0, sx:red.sx, sy:red.sy, epsg, q };
+};
+NDVI.RGB = NDVI.RAMP.map(r=>[parseInt(r[1].slice(1,3),16), parseInt(r[1].slice(3,5),16), parseInt(r[1].slice(5,7),16)]);
+NDVI.STOPS = [0.05, 0.15, 0.25, 0.35, 0.45, 0.55, 0.65, 0.75, 0.85];   // colour of each legend class at its middle
+NDVI.colorAt = (v, smooth) => { if (!smooth) return NDVI.RGB[NDVI.cls(v)]; const S = NDVI.STOPS, C = NDVI.RGB;
+  if (v<=S[0]) return C[0]; if (v>=S[S.length-1]) return C[C.length-1];
+  let k = 0; while (v>S[k+1]) k++; const t = (v-S[k])/(S[k+1]-S[k]), a = C[k], b = C[k+1];
+  return [a[0]+(b[0]-a[0])*t, a[1]+(b[1]-a[1])*t, a[2]+(b[2]-a[2])*t]; };
+// anti-aliased coverage (0..1) of the field shape on a W×H lat/lon pixel grid (even-odd over every ring/part)
+NDVI.coverage = (shape, b, W, H, SUB=4) => {
+  const cov = new Float32Array(W*H), edges = [];
+  shape.forEach(part=>part.forEach(ring=>{ for (let i=0, n=ring.length; i<n; i++){ const p = ring[i], q = ring[(i+1)%n];
+    edges.push([(p[1]-b.w)/(b.e-b.w)*W, (b.n-p[0])/(b.n-b.s)*H, (q[1]-b.w)/(b.e-b.w)*W, (b.n-q[0])/(b.n-b.s)*H]); } }));
+  const xs = [];
+  for (let j=0; j<H; j++) for (let s=0; s<SUB; s++){
+    const y = j+(s+.5)/SUB; xs.length = 0;
+    for (const e of edges){ if ((e[1]<=y) !== (e[3]<=y)) xs.push(e[0]+(y-e[1])*(e[2]-e[0])/(e[3]-e[1])); }
+    if (xs.length<2) continue; xs.sort((a,b)=>a-b); const row = j*W;
+    for (let k=0; k+1<xs.length; k+=2){ const a = Math.max(0, xs[k]), z = Math.min(W, xs[k+1]); if (z<=a) continue;
+      const ia = Math.floor(a), iz = Math.floor(z);
+      if (ia===iz){ cov[row+ia] += (z-a)/SUB; continue; }
+      cov[row+ia] += (ia+1-a)/SUB; for (let i=ia+1; i<iz && i<W; i++) cov[row+i] += 1/SUB; if (iz<W) cov[row+iz] += (z-iz)/SUB; }
+  }
+  for (let i=0; i<cov.length; i++) if (cov[i]>1) cov[i] = 1;
+  return cov;
+};
+NDVI.render = (g, shape, smooth=true, opts={}) => {
+  const b = FX.bbox(shape), kx = 111320*Math.cos((b.s+b.n)/2*D2R), ex = (b.e-b.w)*kx, ey = (b.n-b.s)*110540;
+  const maxDim = opts.maxDim || 1024, maxPx = opts.maxPx || 800000, target = opts.cell || (smooth ? 2.5 : 5);
+  let cell = Math.max(target, Math.max(ex, ey)/maxDim); if ((ex/cell)*(ey/cell) > maxPx) cell = Math.sqrt(ex*ey/maxPx)*1.01;
+  const W = Math.max(1, Math.round(ex/cell)), H = Math.max(1, Math.round(ey/cell)), px = new Uint8ClampedArray(W*H*4);
+  const cov = NDVI.coverage(shape, b, W, H, smooth ? 4 : 1);
+  // lat/lon → UTM is effectively affine over one field: three corner projections instead of one per pixel
+  const P = NDVI.utmFor(g.epsg), o = P.fwd(b.w, b.n), ox = P.fwd(b.e, b.n), oy = P.fwd(b.w, b.s);
+  const dxi = (ox[0]-o[0])/W, dyi = (ox[1]-o[1])/W, dxj = (oy[0]-o[0])/H, dyj = (oy[1]-o[1])/H, ND = NDVI.NODATA, q = g.q;
+  const at = (c, r) => c>=0&&r>=0&&c<g.w&&r<g.h ? q[r*g.w+c] : ND;
+  for (let j=0; j<H; j++) for (let i=0; i<W; i++){
+    const a = cov[j*W+i]; if (!(smooth ? a>0.004 : a>=0.5)) continue;
+    const x = o[0]+(i+.5)*dxi+(j+.5)*dxj, y = o[1]+(i+.5)*dyi+(j+.5)*dyj, fc = (x-g.x0)/g.sx-.5, fr = (g.y0-y)/g.sy-.5, k = 4*(j*W+i);
+    let v = NaN;
+    if (smooth){ const c0 = Math.floor(fc), r0 = Math.floor(fr), tx = fc-c0, ty = fr-r0; let ws = 0, s = 0;
+      const add = (c, r, w)=>{ const n = at(c, r); if (n!==ND && w>0){ ws += w; s += w*n; } };
+      add(c0, r0, (1-tx)*(1-ty)); add(c0+1, r0, tx*(1-ty)); add(c0, r0+1, (1-tx)*ty); add(c0+1, r0+1, tx*ty);
+      if (ws>=0.5) v = s/ws/10000; }
+    else { const n = at(Math.round(fc), Math.round(fr)); if (n!==ND) v = n/10000; }
+    const A = smooth ? a : 1;
+    if (!isFinite(v)){ const h = smooth ? (((i+j)>>1)&3)<2 : ((i+j)&3)<2; px[k]=px[k+1]=px[k+2]=h?255:150; px[k+3]=Math.round(200*A); continue; }  // hatched cloud / no data
+    const c = NDVI.colorAt(v, smooth); px[k]=c[0]; px[k+1]=c[1]; px[k+2]=c[2]; px[k+3]=Math.round(255*A);
+  }
+  return { w:W, h:H, px, bounds:[[b.s, b.w],[b.n, b.e]], cell };
+};
+NDVI.SMOOTH_KEY = "tankmix.ndviSmooth.v1";   // device-only preference (not a tm.* key, not synced)
+NDVI.smoothOn = () => { try { return localStorage.getItem(NDVI.SMOOTH_KEY)!=="0"; } catch(e){ return true; } };
+NDVI.setSmooth = on => { try { localStorage.setItem(NDVI.SMOOTH_KEY, on ? "1" : "0"); } catch(e){} };
+NDVI.pngCache = new Map();
+// the overlay picture for a cached image: re-rendered from cached 10 m values when present (older caches: their PNG)
+NDVI.picture = (v, shape, smooth) => {
+  if (!v.grid || !v.grid.q) return v.png;
+  const k = v.id+"|"+(v.at||0)+"|"+(smooth?1:0); if (NDVI.pngCache.has(k)) return NDVI.pngCache.get(k);
+  const p = NDVI.png(NDVI.render(v.grid, shape, smooth)) || v.png || "";
+  if (NDVI.pngCache.size>12) NDVI.pngCache.delete(NDVI.pngCache.keys().next().value);
+  NDVI.pngCache.set(k, p); return p; };
 NDVI.load = async (scene, shape) => {
   const P = NDVI.utmFor(scene.epsg), bb = NDVI.utmBox(shape, P);
   const [red, nir, scl] = await Promise.all([COG.window(scene.red, bb), COG.window(scene.nir, bb), COG.window(scene.scl, NDVI.utmBox(shape, P, 40))]);
-  const stats = NDVI.compute(red, nir, scl, shape, P, scene.scale, scene.offset), ras = NDVI.raster(red, nir, scl, shape, P, scene.scale, scene.offset);
-  return { stats, ras };
+  const stats = NDVI.compute(red, nir, scl, shape, P, scene.scale, scene.offset), grid = NDVI.grid(red, nir, scl, P, scene.scale, scene.offset, scene.epsg);
+  const ras = NDVI.render(grid, shape, NDVI.smoothOn());
+  return { stats, ras, grid };
 };
 NDVI.png = ras => { const cv = document.createElement("canvas"); cv.width = ras.w; cv.height = ras.h; const cx = cv.getContext && cv.getContext("2d"); if (!cx) return ""; cx.putImageData(new ImageData(ras.px, ras.w, ras.h), 0, 0); return cv.toDataURL("image/png"); };
 
@@ -5620,7 +5700,7 @@ NDVI.background = async () => {
 };
 
 /* ---- NDVI view ---- */
-const NV = { W:null, overlay:null, f:null, sel:null, busy:false, cur:null };
+const NV = { W:null, overlay:null, f:null, sel:null, busy:false, cur:null, upgrading:new Set() };
 function legendHtml(st){
   return `<div class="nd-legend" aria-label="NDVI legend">${NDVI.RAMP.slice().reverse().map((r, i)=>{ const k = NDVI.RAMP.length-1-i; return `<div class="nd-lg"><span class="nd-sw" style="background:${r[1]}"></span><span>${r[2]}</span>${st?`<b>${st.hist[k]}%</b>`:""}</div>`; }).join("")}<div class="nd-lg"><span class="nd-sw nd-hatch"></span><span>Cloud / shadow (no data)</span></div></div>`;
 }
@@ -5637,7 +5717,7 @@ async function showScene(f, s){
     if (navigator.onLine===false){ st.innerHTML = `<p class="warn small">Offline. This date hasn't been downloaded yet.</p>`; return; }
     st.innerHTML = `<p class="small">Downloading ${esc(s.date)} (≈2–3 MB, only the satellite tiles that cover this field)…</p>`; ndFsInfo(`Downloading ${esc(s.date)}…`);
     const before = COG.bytes;
-    try { const r = await NDVI.load(s, shape); v = { png:NDVI.png(r.ras), bounds:r.ras.bounds, stats:r.stats, date:s.date, id:s.id, at:Date.now(), kb:Math.round((COG.bytes-before)/1024) }; }
+    try { const r = await NDVI.load(s, shape); v = { png:NDVI.png(r.ras), grid:r.grid, rv:2, bounds:r.ras.bounds, stats:r.stats, date:s.date, id:s.id, at:Date.now(), kb:Math.round((COG.bytes-before)/1024) }; }
     catch(err){ if (NV.f===f && $("ndStat")) $("ndStat").innerHTML = `<p class="warn small" role="alert">⚠ Couldn't load this image: ${esc(err.message||String(err))}</p>`; ndFsInfo(`⚠ Couldn't load ${esc(s.date)}`); if (NV.f===f) NV.cur = null; return; }
     await IMG.put(key, v);
     { const e2 = NDX.get(f), sc = e2 && e2.scenes.find(x=>x.id===s.id); if (sc && sc.clear==null){ sc.clear = v.stats.clear; NDX.put(f, e2); } }
@@ -5646,14 +5726,19 @@ async function showScene(f, s){
   if (NV.f!==f || !$("ndStat")) return;
   const e = NDX.get(f); if (e && (!e.seen || s.date>e.seen)){ e.seen = s.date; NDX.put(f, e); }
   if (NV.overlay && NV.W){ NV.W.map.removeLayer(NV.overlay); NV.overlay = null; }
-  if (NV.W && v.png){ NV.overlay = L.imageOverlay(v.png, v.bounds, {opacity:1, interactive:false}).addTo(NV.W.map); if (NV.outline) NV.outline.bringToFront(); }
+  const pic = NDVI.picture(v, shape, NDVI.smoothOn());
+  if (NV.W && pic){ NV.overlay = L.imageOverlay(pic, v.bounds, {opacity:1, interactive:false}).addTo(NV.W.map); if (NV.outline) NV.outline.bringToFront(); }
+  // images cached before v2.17.4 have no 10 m values: show them as they are, and quietly upgrade once when online
+  if (!v.grid && navigator.onLine!==false && !NV.upgrading.has(key)){ NV.upgrading.add(key);
+    NDVI.load(s, shape).then(async r=>{ const nv = Object.assign({}, v, { png:NDVI.png(r.ras), grid:r.grid, rv:2, bounds:r.ras.bounds, at:Date.now() }); await IMG.put(key, nv); if (NV.f===f && NV.sel===s.id) showScene(f, s); }).catch(()=>{}).finally(()=>NV.upgrading.delete(key)); }
   const m = v.stats; NV.cur = { v, s };
-  st.innerHTML = `<button type="button" class="btn alt block" id="ndFull" style="margin-bottom:8px">⛶ Full Screen</button><div class="nd-mean"><span>Mean NDVI</span><b>${isFinite(m.mean)?m.mean.toFixed(2):"—"}</b><span class="small">${esc(v.date)} · ${m.clear}% of field clear · ${fmt(m.used*0.0247105,1)} ac measured</span></div>
+  st.innerHTML = `<div class="row" style="gap:8px;margin-bottom:8px;align-items:center"><button type="button" class="btn alt" id="ndFull" style="flex:1">⛶ Full Screen</button><label class="chk nd-smooth" style="margin:0"><input type="checkbox" id="ndSmooth"${NDVI.smoothOn()?" checked":""}${v.grid?"":" disabled"}> Smooth</label></div><div class="nd-mean"><span>Mean NDVI</span><b>${isFinite(m.mean)?m.mean.toFixed(2):"—"}</b><span class="small">${esc(v.date)} · ${m.clear}% of field clear · ${fmt(m.used*0.0247105,1)} ac measured</span></div>
     <div class="small" style="margin:4px 0 8px">Low 10%: <b>${isFinite(m.p10)?m.p10.toFixed(2):"—"}</b> · Median: <b>${isFinite(m.median)?m.median.toFixed(2):"—"}</b> · High 10%: <b>${isFinite(m.p90)?m.p90.toFixed(2):"—"}</b></div>
     ${m.clear<NDVI.GOOD?`<p class="warn small">⚠ Clouds cover much of the field on this date; the mean uses only the clear part.</p>`:""}
     ${legendHtml(m)}
     <p class="tiny muted" style="margin:6px 0 0">Sentinel-2 L2A (Copernicus/ESA) via Element 84 Earth Search. 10 m pixels; ${v.kb!=null?"downloaded "+v.kb+" KB":"saved on this device"}.</p>`;
   $("ndFull").onclick = ()=>ndFsOpen(f);
+  $("ndSmooth").onchange = e=>{ NDVI.setSmooth(e.target.checked); showScene(f, s); };
   ndFsUpdate(f);
 }
 /* ---- v2.17.3 NDVI full screen: the selected date's NDVI over the field, pinch-zoom/pan map, outline, mean, legend,
@@ -5670,7 +5755,9 @@ function ndFsDates(f){ const el = $("ndFsDates"); if (!el) return; const e = NDX
 function ndFsUpdate(f){
   if (!NFS.open || NFS.f!==f || !NV.cur) return; const {v} = NV.cur, m = v.stats;
   if (NFS.overlay && NFS.W){ NFS.W.map.removeLayer(NFS.overlay); NFS.overlay = null; }
-  if (NFS.W && v.png){ NFS.overlay = L.imageOverlay(v.png, v.bounds, {opacity:1, interactive:false}).addTo(NFS.W.map); if (NFS.outline) NFS.outline.bringToFront(); }
+  const pic = NDVI.picture(v, FX.fieldShape(f), NDVI.smoothOn());
+  if (NFS.W && pic){ NFS.overlay = L.imageOverlay(pic, v.bounds, {opacity:1, interactive:false}).addTo(NFS.W.map); if (NFS.outline) NFS.outline.bringToFront(); }
+  const sm = $("ndFsSmooth"); if (sm){ sm.hidden = !v.grid; sm.setAttribute("aria-pressed", String(NDVI.smoothOn())); sm.textContent = "Smooth: "+(NDVI.smoothOn()?"On":"Off"); }
   ndFsInfo(`<div><b>${esc(f.name)}</b> · ${esc(v.date)}</div><div>Mean NDVI <b class="nd-fs-mean">${isFinite(m.mean)?m.mean.toFixed(2):"—"}</b> · ${m.clear}% Clear</div>`);
   const lg = $("ndFsLegend"); if (lg) lg.innerHTML = legendHtml(m);
   ndFsDates(f);
@@ -5681,7 +5768,7 @@ function ndFsOpen(f){
   const el = document.createElement("div"); el.id = "ndFs"; el.className = "nd-fs"; el.setAttribute("role", "dialog"); el.setAttribute("aria-modal", "true"); el.setAttribute("aria-label", "NDVI Full Screen · "+f.name);
   el.innerHTML = `<div class="fmap nd-fs-map" id="ndFsMap"></div>
     <div class="nd-fs-top"><div class="nd-fs-info" id="ndFsInfo" aria-live="polite"></div><button type="button" class="nd-fs-btn" id="ndFsX" aria-label="Close Full Screen" title="Close Full Screen">✕</button></div>
-    <div class="nd-fs-bot"><details class="nd-fs-lg"><summary>Legend</summary><div id="ndFsLegend"></div></details><div class="nd-fs-dates" id="ndFsDates" role="group" aria-label="Image Dates"></div></div>`;
+    <div class="nd-fs-bot"><div class="row" style="gap:6px;align-items:flex-start;pointer-events:none"><button type="button" class="nd-fs-date nd-fs-sm" id="ndFsSmooth" style="pointer-events:auto"></button></div><details class="nd-fs-lg"><summary>Legend</summary><div id="ndFsLegend"></div></details><div class="nd-fs-dates" id="ndFsDates" role="group" aria-label="Image Dates"></div></div>`;
   host.appendChild(el); document.body.classList.add("nd-fs-on");
   NFS.open = true; NFS.f = f;
   const W = NFS.W = makeMap($("ndFsMap"), {readOnly:true});
@@ -5689,6 +5776,7 @@ function ndFsOpen(f){
     const fit = ()=>{ if (!NFS.W) return; W.map.invalidateSize(); W.map.fitBounds(NFS.outline.getBounds(), {padding:[24,24], maxZoom:18}); };
     W.later(fit, 60); NFS.fit = fit; }
   $("ndFsX").onclick = ndFsClose;
+  $("ndFsSmooth").onclick = ()=>{ NDVI.setSmooth(!NDVI.smoothOn()); const c = NV.cur; if (c) showScene(f, c.s); };
   ndFsUpdate(f);
   NFS.api = false; const req = el.requestFullscreen || el.webkitRequestFullscreen;
   if (req && (document.fullscreenEnabled || document.webkitFullscreenEnabled)){

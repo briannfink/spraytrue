@@ -1,4 +1,14 @@
-# SprayTrue (v2.17.3 — live; published Nov 14, 2026)
+# SprayTrue (v2.17.4 — PREVIEW ONLY; live is v2.17.3)
+
+## v2.17.4 — Smooth NDVI (preview)
+
+- **Fields › field › 🛰 NDVI** and **⛶ Full Screen**: the field image is now drawn smooth instead of 10 m blocks. The same Sentinel-2 10 m NDVI values are resampled with bilinear interpolation onto a ~2.5 m grid *before* colouring, with a continuous colour ramp and an anti-aliased edge clipped to the field boundary.
+- Cloud / shadow / no-data is never blended into crop values (only clear pixels are interpolated); clouds stay hatched.
+- Mean NDVI, % clear and the histogram are still computed from the original 10 m pixels — the numbers don't change.
+- Fast on iPhone: the drawing is capped (≤ 1024 px per side, ≤ 0.8 MP); large fields use a coarser cell.
+- **Smooth** toggle (on by default, remembered on this device) next to ⛶ Full Screen, and **Smooth: On/Off** inside Full Screen. Off shows the original 10 m pixels.
+- New downloads store the compact 10 m values with the cached image. Older cached images still show (also offline); when online they are quietly re-downloaded once so Smooth can be used.
+- No data, sync or calculation changes. Tests: `tools/test33.js` (27 assertions).
 
 ## v2.17.3 — NDVI ⛶ Full Screen (live)
 
