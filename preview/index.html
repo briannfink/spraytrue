@@ -281,6 +281,25 @@ body.mm-on{overflow:hidden}
 .fi-row{display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-bottom:1px solid var(--line,#ddd)}
 .fi-row input[type=checkbox]{width:28px;height:28px;margin-top:6px;flex:0 0 auto}
 .fmap.nd-map{height:min(58vh,420px)}
+/* v2.17.3 NDVI full screen: Fullscreen API where supported, else a fixed full-viewport overlay (iPhone Safari) */
+.nd-fs{position:fixed;inset:0;z-index:2147483000;background:#000;color:#fff;display:flex;flex-direction:column;width:100vw;height:100vh;height:100dvh;margin:0;padding:0;overscroll-behavior:contain}
+.nd-fs[hidden]{display:none}
+.nd-fs-map{position:absolute;inset:0;height:auto;border-radius:0;border:0;background:#111}
+.nd-fs-top,.nd-fs-bot{position:absolute;left:0;right:0;z-index:1000;display:flex;gap:8px;pointer-events:none;padding-left:calc(10px + env(safe-area-inset-left));padding-right:calc(10px + env(safe-area-inset-right))}
+.nd-fs-top{top:0;align-items:flex-start;justify-content:space-between;padding-top:calc(8px + env(safe-area-inset-top))}
+.nd-fs-bot{bottom:0;flex-direction:column;padding-bottom:calc(8px + env(safe-area-inset-bottom))}
+.nd-fs-top>*,.nd-fs-bot>*{pointer-events:auto}
+.nd-fs-info{background:rgba(0,0,0,.72);border-radius:10px;padding:6px 10px;font-size:.9em;line-height:1.3;max-width:calc(100% - 70px)}
+.nd-fs-info b.nd-fs-mean{font-size:1.5em}
+.nd-fs-btn{flex:0 0 auto;min-width:52px;min-height:52px;border:2px solid #fff;border-radius:12px;background:rgba(0,0,0,.72);color:#fff;font:inherit;font-size:1.3em;font-weight:900}
+.nd-fs-dates{display:flex;gap:6px;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:2px}
+.nd-fs-date{flex:0 0 auto;min-height:44px;padding:4px 12px;border:2px solid #fff;border-radius:10px;background:rgba(0,0,0,.72);color:#fff;font:inherit;font-weight:700;white-space:nowrap}
+.nd-fs-date.on{background:#fff;color:#000}
+.nd-fs-lg{background:rgba(0,0,0,.72);border-radius:10px;padding:4px 10px;align-self:flex-start;max-width:100%}
+.nd-fs-lg summary{min-height:36px;display:flex;align-items:center;font-weight:700}
+.nd-fs-lg .nd-legend{grid-template-columns:repeat(auto-fill,minmax(130px,1fr));font-size:.8em;padding-bottom:6px}
+body.nd-fs-on{overflow:hidden}
+@media print{.nd-fs{display:none!important}}
 .nd-dates{display:grid;gap:8px;margin-top:6px}
 .nd-date{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:center;justify-content:space-between;min-height:52px;padding:8px 12px;border:2px solid currentColor;border-radius:10px;background:transparent;color:inherit;font:inherit;text-align:left}
 .nd-date b{font-size:1.05em}.nd-date span{font-size:.85em}
@@ -1226,7 +1245,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
    3. Storage (localStorage)
    4. UI: Mix, Order/Jar test, Lookup (EPA), Saved, Print
    ===================================================================== */
-const APP_VERSION = "2.17.2";
+const APP_VERSION = "2.17.3";
 const TM = window.TM = {};
 
 /* ---------- 1. Constants ---------- */
@@ -5601,7 +5620,7 @@ NDVI.background = async () => {
 };
 
 /* ---- NDVI view ---- */
-const NV = { W:null, overlay:null, f:null, sel:null, busy:false };
+const NV = { W:null, overlay:null, f:null, sel:null, busy:false, cur:null };
 function legendHtml(st){
   return `<div class="nd-legend" aria-label="NDVI legend">${NDVI.RAMP.slice().reverse().map((r, i)=>{ const k = NDVI.RAMP.length-1-i; return `<div class="nd-lg"><span class="nd-sw" style="background:${r[1]}"></span><span>${r[2]}</span>${st?`<b>${st.hist[k]}%</b>`:""}</div>`; }).join("")}<div class="nd-lg"><span class="nd-sw nd-hatch"></span><span>Cloud / shadow (no data)</span></div></div>`;
 }
@@ -5616,10 +5635,10 @@ async function showScene(f, s){
   let v = await IMG.get(key);
   if (!v){
     if (navigator.onLine===false){ st.innerHTML = `<p class="warn small">Offline. This date hasn't been downloaded yet.</p>`; return; }
-    st.innerHTML = `<p class="small">Downloading ${esc(s.date)} (≈2–3 MB, only the satellite tiles that cover this field)…</p>`;
+    st.innerHTML = `<p class="small">Downloading ${esc(s.date)} (≈2–3 MB, only the satellite tiles that cover this field)…</p>`; ndFsInfo(`Downloading ${esc(s.date)}…`);
     const before = COG.bytes;
     try { const r = await NDVI.load(s, shape); v = { png:NDVI.png(r.ras), bounds:r.ras.bounds, stats:r.stats, date:s.date, id:s.id, at:Date.now(), kb:Math.round((COG.bytes-before)/1024) }; }
-    catch(err){ if (NV.f===f && $("ndStat")) $("ndStat").innerHTML = `<p class="warn small" role="alert">⚠ Couldn't load this image: ${esc(err.message||String(err))}</p>`; return; }
+    catch(err){ if (NV.f===f && $("ndStat")) $("ndStat").innerHTML = `<p class="warn small" role="alert">⚠ Couldn't load this image: ${esc(err.message||String(err))}</p>`; ndFsInfo(`⚠ Couldn't load ${esc(s.date)}`); if (NV.f===f) NV.cur = null; return; }
     await IMG.put(key, v);
     { const e2 = NDX.get(f), sc = e2 && e2.scenes.find(x=>x.id===s.id); if (sc && sc.clear==null){ sc.clear = v.stats.clear; NDX.put(f, e2); } }
     const e = NDX.get(f); if (e){ const keep = e.scenes.slice(0, 6).map(x=>NDVI.imgKey(f, x)); IMG.prune(f.id, keep.concat([key])); }
@@ -5628,13 +5647,67 @@ async function showScene(f, s){
   const e = NDX.get(f); if (e && (!e.seen || s.date>e.seen)){ e.seen = s.date; NDX.put(f, e); }
   if (NV.overlay && NV.W){ NV.W.map.removeLayer(NV.overlay); NV.overlay = null; }
   if (NV.W && v.png){ NV.overlay = L.imageOverlay(v.png, v.bounds, {opacity:1, interactive:false}).addTo(NV.W.map); if (NV.outline) NV.outline.bringToFront(); }
-  const m = v.stats;
-  st.innerHTML = `<div class="nd-mean"><span>Mean NDVI</span><b>${isFinite(m.mean)?m.mean.toFixed(2):"—"}</b><span class="small">${esc(v.date)} · ${m.clear}% of field clear · ${fmt(m.used*0.0247105,1)} ac measured</span></div>
+  const m = v.stats; NV.cur = { v, s };
+  st.innerHTML = `<button type="button" class="btn alt block" id="ndFull" style="margin-bottom:8px">⛶ Full Screen</button><div class="nd-mean"><span>Mean NDVI</span><b>${isFinite(m.mean)?m.mean.toFixed(2):"—"}</b><span class="small">${esc(v.date)} · ${m.clear}% of field clear · ${fmt(m.used*0.0247105,1)} ac measured</span></div>
     <div class="small" style="margin:4px 0 8px">Low 10%: <b>${isFinite(m.p10)?m.p10.toFixed(2):"—"}</b> · Median: <b>${isFinite(m.median)?m.median.toFixed(2):"—"}</b> · High 10%: <b>${isFinite(m.p90)?m.p90.toFixed(2):"—"}</b></div>
     ${m.clear<NDVI.GOOD?`<p class="warn small">⚠ Clouds cover much of the field on this date; the mean uses only the clear part.</p>`:""}
     ${legendHtml(m)}
     <p class="tiny muted" style="margin:6px 0 0">Sentinel-2 L2A (Copernicus/ESA) via Element 84 Earth Search. 10 m pixels; ${v.kb!=null?"downloaded "+v.kb+" KB":"saved on this device"}.</p>`;
+  $("ndFull").onclick = ()=>ndFsOpen(f);
+  ndFsUpdate(f);
 }
+/* ---- v2.17.3 NDVI full screen: the selected date's NDVI over the field, pinch-zoom/pan map, outline, mean, legend,
+   date switching without leaving. Uses the Fullscreen API where it works (desktop, Android); iPhone Safari and
+   installed PWAs get a fixed full-viewport overlay (iOS has no element fullscreen). Safe-area insets respected. */
+const NFS = { open:false, W:null, overlay:null, outline:null, api:false, f:null };
+const fsEl = () => document.fullscreenElement || document.webkitFullscreenElement || null;
+function ndFsInfo(html){ if (NFS.open && $("ndFsInfo")) $("ndFsInfo").innerHTML = html; }
+function ndFsDates(f){ const el = $("ndFsDates"); if (!el) return; const e = NDX.get(f);
+  el.innerHTML = e && e.scenes.length ? e.scenes.map(s=>{ const tag = s.clear!=null && s.clear>=NDVI.GOOD ? "✓" : s.clear!=null && s.clear<20 ? "☁" : "◐";
+    return `<button type="button" class="nd-fs-date${NV.sel===s.id?" on":""}" data-fsid="${esc(s.id)}" aria-pressed="${NV.sel===s.id}">${tag} ${esc(s.date)}</button>`; }).join("") : "";
+  el.querySelectorAll("[data-fsid]").forEach(b=>b.onclick=()=>{ const s = (NDX.get(f)||{scenes:[]}).scenes.find(x=>x.id===b.dataset.fsid); if (s && s.id!==NV.sel) showScene(f, s); });
+  const on = el.querySelector(".on"); if (on && on.scrollIntoView) try { on.scrollIntoView({block:"nearest", inline:"center"}); } catch(e){} }
+function ndFsUpdate(f){
+  if (!NFS.open || NFS.f!==f || !NV.cur) return; const {v} = NV.cur, m = v.stats;
+  if (NFS.overlay && NFS.W){ NFS.W.map.removeLayer(NFS.overlay); NFS.overlay = null; }
+  if (NFS.W && v.png){ NFS.overlay = L.imageOverlay(v.png, v.bounds, {opacity:1, interactive:false}).addTo(NFS.W.map); if (NFS.outline) NFS.outline.bringToFront(); }
+  ndFsInfo(`<div><b>${esc(f.name)}</b> · ${esc(v.date)}</div><div>Mean NDVI <b class="nd-fs-mean">${isFinite(m.mean)?m.mean.toFixed(2):"—"}</b> · ${m.clear}% Clear</div>`);
+  const lg = $("ndFsLegend"); if (lg) lg.innerHTML = legendHtml(m);
+  ndFsDates(f);
+}
+function ndFsOpen(f){
+  if (NFS.open || !NV.cur || NV.f!==f) return; const shape = FX.fieldShape(f); if (!shape) return;
+  const host = $("dlg") && $("dlg").open ? $("dlg") : document.body;   // inside the modal dialog so it sits above it
+  const el = document.createElement("div"); el.id = "ndFs"; el.className = "nd-fs"; el.setAttribute("role", "dialog"); el.setAttribute("aria-modal", "true"); el.setAttribute("aria-label", "NDVI Full Screen · "+f.name);
+  el.innerHTML = `<div class="fmap nd-fs-map" id="ndFsMap"></div>
+    <div class="nd-fs-top"><div class="nd-fs-info" id="ndFsInfo" aria-live="polite"></div><button type="button" class="nd-fs-btn" id="ndFsX" aria-label="Close Full Screen" title="Close Full Screen">✕</button></div>
+    <div class="nd-fs-bot"><details class="nd-fs-lg"><summary>Legend</summary><div id="ndFsLegend"></div></details><div class="nd-fs-dates" id="ndFsDates" role="group" aria-label="Image Dates"></div></div>`;
+  host.appendChild(el); document.body.classList.add("nd-fs-on");
+  NFS.open = true; NFS.f = f;
+  const W = NFS.W = makeMap($("ndFsMap"), {readOnly:true});
+  if (W){ NFS.outline = L.polygon(shape, {color:"#ffffff", weight:3, fill:false, interactive:false}).addTo(W.map);
+    const fit = ()=>{ if (!NFS.W) return; W.map.invalidateSize(); W.map.fitBounds(NFS.outline.getBounds(), {padding:[24,24], maxZoom:18}); };
+    W.later(fit, 60); NFS.fit = fit; }
+  $("ndFsX").onclick = ndFsClose;
+  ndFsUpdate(f);
+  NFS.api = false; const req = el.requestFullscreen || el.webkitRequestFullscreen;
+  if (req && (document.fullscreenEnabled || document.webkitFullscreenEnabled)){
+    try { const p = req.call(el); NFS.api = true; if (p && p.catch) p.catch(()=>{ NFS.api = false; }); } catch(e){ NFS.api = false; } }
+  $("ndFsX").focus({preventScroll:true});
+}
+function ndFsClose(){
+  if (!NFS.open) return; NFS.open = false;
+  if (NFS.api && fsEl()){ try { const x = document.exitFullscreen || document.webkitExitFullscreen; const p = x && x.call(document); if (p && p.catch) p.catch(()=>{}); } catch(e){} }
+  NFS.api = false;
+  if (NFS.W){ try { NFS.W.destroy(); } catch(e){} } NFS.W = NFS.overlay = NFS.outline = null; NFS.f = null;
+  const el = $("ndFs"); if (el) el.remove(); document.body.classList.remove("nd-fs-on");
+  const b = $("ndFull"); if (b) b.focus({preventScroll:true});
+}
+["fullscreenchange","webkitfullscreenchange"].forEach(t=>document.addEventListener(t, ()=>{ if (NFS.open && NFS.api && !fsEl()) ndFsClose(); else if (NFS.open && NFS.fit) setTimeout(NFS.fit, 50); }));
+window.addEventListener("orientationchange", ()=>{ if (NFS.open && NFS.fit) setTimeout(NFS.fit, 250); });
+// Escape (and the dialog's own cancel) closes full screen first, not the whole NDVI dialog
+document.addEventListener("keydown", e=>{ if (NFS.open && e.key==="Escape"){ e.preventDefault(); e.stopPropagation(); ndFsClose(); } }, true);
+TM.ndviFullScreen = { open:ndFsOpen, close:ndFsClose, isOpen:()=>NFS.open };
 function renderNdviList(f){
   const el = $("ndDates"); if (!el) return; const e = NDX.get(f);
   el.innerHTML = e && e.scenes.length ? e.scenes.map(s=>sceneRow(s, e)).join("") : `<p class="small muted">No images listed yet.</p>`;
@@ -5642,14 +5715,14 @@ function renderNdviList(f){
 }
 async function ndviDlg(f, force){
   const shape = FX.fieldShape(f); if (!shape){ toast("Add a boundary to this field first"); return; }
-  NV.f = f; NV.sel = null;
+  if (NFS.open) ndFsClose(); NV.f = f; NV.sel = null; NV.cur = null;
   openDlg("🛰 NDVI · "+f.name, `<div class="fmap nd-map" id="ndMap"></div>
     <div id="ndStat" style="margin-top:8px"><p class="small">Checking for satellite images…</p></div>
     <div class="row" style="justify-content:space-between;margin-top:10px"><span class="subhd" style="margin:0">Dates</span><button type="button" class="btn alt sm" id="ndCheck">↻ Check for New</button></div>
     <div id="ndDates" class="nd-dates"></div>
     <p class="tiny muted" style="margin:8px 0 0">Sentinel-2 passes every 2–5 days; clouds often hide the field. Checking for new dates uses only a few KB; each new date's image is about 2–3 MB the first time and is then kept on this device.</p>`);
   const W = NV.W = makeMap($("ndMap"), {readOnly:true});
-  if (W){ NV.outline = L.polygon(shape, {color:"#ffffff", weight:3, fill:false, interactive:false}).addTo(W.map); TM.dlgCleanup = ()=>{ W.destroy(); NV.W = null; NV.overlay = null; NV.f = null; }; W.later(()=>{ W.map.invalidateSize(); W.map.fitBounds(NV.outline.getBounds(), {padding:[12,12], maxZoom:17}); }, 80); }
+  if (W){ NV.outline = L.polygon(shape, {color:"#ffffff", weight:3, fill:false, interactive:false}).addTo(W.map); TM.dlgCleanup = ()=>{ ndFsClose(); W.destroy(); NV.W = null; NV.overlay = null; NV.f = null; NV.cur = null; }; W.later(()=>{ W.map.invalidateSize(); W.map.fitBounds(NV.outline.getBounds(), {padding:[12,12], maxZoom:17}); }, 80); }
   $("ndCheck").onclick = ()=>ndviDlg(f, true);
   renderNdviList(f);
   let e = NDX.get(f);
