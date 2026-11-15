@@ -302,8 +302,8 @@ body.nd-fs-on{overflow:hidden}
 @media print{.nd-fs{display:none!important}}
 .fld-fs-acts{justify-content:flex-start}.fld-fs-acts a.nd-fs-date{display:inline-flex;align-items:center;text-decoration:none}
 header.top.has-mkt{flex-wrap:wrap}header.top.has-mkt .title{flex-basis:0}
-.mkt-bar{flex:0 0 100%;order:99;margin:6px -14px -10px;overflow:hidden;background:#0d0d0d;color:#fff;border-top:1px solid rgba(255,255,255,.25);height:34px;display:flex;align-items:center;cursor:pointer;-webkit-tap-highlight-color:transparent}
-.mkt-track{display:flex;white-space:nowrap;will-change:transform;animation:mktScroll 60s linear infinite}
+.mkt-bar{flex:0 0 calc(100% + 28px);width:calc(100% + 28px);max-width:none;box-sizing:border-box;order:99;margin:6px -14px -10px;overflow:hidden;background:#0d0d0d;color:#fff;border-top:1px solid rgba(255,255,255,.25);height:34px;display:flex;align-items:center;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.mkt-track{display:flex;flex:0 0 auto;width:max-content;white-space:nowrap;will-change:transform;animation:mktScroll 60s linear infinite}
 .mkt-bar:hover .mkt-track,.mkt-bar:focus .mkt-track,.mkt-bar:active .mkt-track{animation-play-state:paused}
 .mkt-run{display:inline-flex;align-items:center;flex:0 0 auto}
 .mkt-it{font-size:15px;font-weight:650;padding:0 4px;letter-spacing:.01em}
@@ -6111,10 +6111,19 @@ MKT.render = () => { const p = MKT.prefs(); let b = $("mktBar");
   const fresh = !b; b = MKT.bar(); if (!b) return; const items = MKT.items(), tr = $("mktTrack");
   const body = items.length ? items.map(MKT.itemHtml).join('<span class="mkt-sep" aria-hidden="true">•</span>')
     : `<span class="mkt-it">${MKT.busy ? "Getting cash bids…" : p.locs.length && p.crops.length ? "No posted bids yet for the chosen crops. Tap for details." : "Pick locations and crops in Settings › Market Prices Ticker."}</span>`;
-  tr.innerHTML = `<span class="mkt-run">${body}<span class="mkt-sep" aria-hidden="true">•</span></span><span class="mkt-run" aria-hidden="true">${body}<span class="mkt-sep">•</span></span>`;
-  const len = tr.textContent.length/2; tr.style.animationDuration = Math.max(20, Math.round(len*0.28))+"s";
+  MKT.lastBody = body; MKT.fill();
   b.title = items.filter(i=>!i.err).map(i=>i.crop+" "+i.place+" $"+i.bid.toFixed(2)+" "+i.when).join(" · ");
   if (fresh) window.dispatchEvent(new Event("resize")); };
+/* The track is two identical halves and scrolls by exactly one half, so the loop is seamless. Each half repeats the items
+   until it is at least as wide as the bar, so a short list on a wide iPad / landscape iPhone never leaves an empty stretch. */
+MKT.fill = () => { const b = $("mktBar"), tr = $("mktTrack"); if (!b || !tr || MKT.lastBody==null) return;
+  const one = MKT.lastBody+'<span class="mkt-sep" aria-hidden="true">•</span>';
+  const build = k => { const half = Array.from({length:k}, ()=>one).join(""); tr.innerHTML = `<span class="mkt-run">${half}</span><span class="mkt-run" aria-hidden="true">${half}</span>`; };
+  build(1); const runW = tr.firstChild.getBoundingClientRect().width, barW = b.getBoundingClientRect().width;
+  const k = runW>0 && barW>runW ? Math.min(20, Math.ceil(barW/runW)) : 1; if (k>1) build(k);
+  MKT.copies = k; const len = tr.firstChild.textContent.length; tr.style.animationDuration = Math.max(20, Math.round(len*0.28))+"s"; };
+window.addEventListener("resize", ()=>{ clearTimeout(MKT.rz); MKT.rz = setTimeout(MKT.fill, 150); });
+window.addEventListener("orientationchange", ()=>setTimeout(MKT.fill, 300));
 MKT.dlg = () => { const p = MKT.prefs();
   const body = p.locs.map(l=>{ const k = MKT.key(l), c = MKT.data[k], s = MKT.SOURCES[l.src]; if (!s) return "";
     const head = `<h3 style="margin:12px 0 4px">${esc(MKT.locName(l))} <span class="tiny muted">· ${esc(s.name)}</span></h3>`;
