@@ -1,6 +1,6 @@
-# SprayTrue (v2.17.4 — PREVIEW ONLY; live is v2.17.3)
+# SprayTrue (v2.17.4 — live; published Nov 14, 2026)
 
-## v2.17.4 — Smooth NDVI (preview)
+## v2.17.4 — Smooth NDVI, Basic | Contrasted (live)
 
 - **Fields › field › 🛰 NDVI** and **⛶ Full Screen**: the field image is now drawn smooth instead of 10 m blocks. The same Sentinel-2 10 m NDVI values are resampled with bilinear interpolation onto a ~2.5 m grid *before* colouring, with a continuous colour ramp and an anti-aliased edge clipped to the field boundary.
 - Cloud / shadow / no-data is never blended into crop values (only clear pixels are interpolated); clouds stay hatched.
