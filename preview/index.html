@@ -300,7 +300,7 @@ body.mm-on{overflow:hidden}
 .nd-fs-lg .nd-legend{grid-template-columns:repeat(auto-fill,minmax(130px,1fr));font-size:.8em;padding-bottom:6px}
 body.nd-fs-on{overflow:hidden}
 @media print{.nd-fs{display:none!important}}
-.fld-fs-acts{justify-content:flex-start}.fld-fs-acts a.nd-fs-date{display:inline-flex;align-items:center;text-decoration:none}
+.fm-acts a.btn{display:inline-flex;align-items:center;justify-content:center;text-decoration:none}
 header.top.has-mkt{flex-wrap:wrap}header.top.has-mkt .title{flex-basis:0}
 .mkt-bar{flex:0 0 calc(100% + 28px);width:calc(100% + 28px);max-width:none;box-sizing:border-box;order:99;margin:6px -14px -10px;overflow:hidden;background:#0d0d0d;color:#fff;border-top:1px solid rgba(255,255,255,.25);height:34px;display:flex;align-items:center;cursor:pointer;-webkit-tap-highlight-color:transparent}
 .mkt-track{display:flex;flex:0 0 auto;width:max-content;white-space:nowrap;will-change:transform;animation:mktScroll 60s linear infinite}
@@ -1288,7 +1288,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
    3. Storage (localStorage)
    4. UI: Mix, Order/Jar test, Lookup (EPA), Saved, Print
    ===================================================================== */
-const APP_VERSION = "2.17.6";
+const APP_VERSION = "2.17.7";
 const TM = window.TM = {};
 
 /* ---------- 1. Constants ---------- */
@@ -2448,8 +2448,16 @@ function buildSheetPdf(root){
   };
   const putPara = (txt, size, maxCh, bold, indent) => putLines(pdfWrap(txt, maxCh), size, 3, bold, indent);
 
+  // v2.17.7: JPEG pictures (the printed record's field satellite image) are embedded as real images
+  const images = [];
+  const pdfImg = (im, maxW) => { const m = /^data:image\/jpeg;base64,(.+)$/.exec(im.getAttribute("src")||""), pw = +im.dataset.w, ph = +im.dataset.h;
+    if (!m || !(pw>0) || !(ph>0)) return null;
+    let bytes; try { const bin = atob(m[1]); bytes = new Uint8Array(bin.length); for (let i=0;i<bin.length;i++) bytes[i] = bin.charCodeAt(i); } catch(e){ return null; }
+    let iw = maxW, ih = iw*ph/pw; if (ih>230){ ih = 230; iw = ih*pw/ph; }
+    images.push({bytes, pw, ph}); return { name:"Im"+images.length, iw, ih }; };
   const drawTable = (tableEl) => {
-    const rows = [...tableEl.querySelectorAll("tr")].map(tr => [...tr.children].map(c => pdfSafe((c.innerText||c.textContent||"").replace(/\s+/g," ").trim())));
+    const trs = [...tableEl.querySelectorAll("tr")];
+    const rows = trs.map(tr => [...tr.children].map(c => pdfSafe((c.innerText||c.textContent||"").replace(/\s+/g," ").trim())));
     if (!rows.length) return;
     const cols = Math.max(...rows.map(r=>r.length));
     rows.forEach(r=>{ while (r.length<cols) r.push(""); });
@@ -2461,8 +2469,9 @@ function buildSheetPdf(root){
     const pad = 4, font = 8, lh = font + 3;
     rows.forEach((cells, ri) => {
       const wrapped = cells.map((c,i)=>pdfWrap(c, Math.max(4, Math.floor(widths[i]/4.2))));
-      const nLines = Math.max(1, ...wrapped.map(w=>w.length));
-      const rowH = nLines * lh + pad*2;
+      const pics = cells.map((_,i)=>{ const el = trs[ri].children[i], im = el && el.querySelector && el.querySelector("img[data-pdf-img]"); return im ? pdfImg(im, widths[i]-pad*2) : null; });
+      const nLines = Math.max(1, ...wrapped.map((w,i)=>w.length + (pics[i] ? (pics[i].ih+4)/lh : 0)));
+      const rowH = Math.ceil(nLines * lh) + pad*2;
       ensure(rowH + 2);
       y -= rowH;
       const top = y + rowH, bot = y;
@@ -2475,8 +2484,10 @@ function buildSheetPdf(root){
       for (let i=0;i<=cols;i++){ const xx = i<cols?xs[i]:PDF_M+usable; lineH(xx, bot, xx, top); }
       const isHead = ri===0 || [...tableEl.querySelectorAll("tr")[ri].children].every(c=>c.tagName==="TH");
       wrapped.forEach((lines, i)=>{
+        const p = pics[i], off = p ? p.ih+4 : 0;
+        if (p) stream.push("q "+p.iw.toFixed(2)+" 0 0 "+p.ih.toFixed(2)+" "+(xs[i]+pad).toFixed(2)+" "+(top-pad-p.ih).toFixed(2)+" cm /"+p.name+" Do Q");
         lines.forEach((ln, li)=>{
-          textAt(xs[i]+pad, top - pad - font - li*lh, font, ln, isHead);
+          textAt(xs[i]+pad, top - pad - off - font - li*lh, font, ln, isHead);
         });
       });
       y -= 1;
@@ -2524,13 +2535,16 @@ function buildSheetPdf(root){
   pages.forEach((cmds, i) => {
     const content = cmds.join("\n");
     const pageObj = 3 + i*2, contObj = pageObj+1;
-    obj(pageObj, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 "+PDF_W+" "+PDF_H+"] /Contents "+contObj+" 0 R /Resources << /Font << /F1 "+fontStart+" 0 R /F2 "+(fontStart+1)+" 0 R >> >> >>");
+    const xo = images.length ? " /XObject << "+images.map((_,k)=>"/Im"+(k+1)+" "+(fontStart+2+k)+" 0 R").join(" ")+" >>" : "";
+    obj(pageObj, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 "+PDF_W+" "+PDF_H+"] /Contents "+contObj+" 0 R /Resources << /Font << /F1 "+fontStart+" 0 R /F2 "+(fontStart+1)+" 0 R >>"+xo+" >> >>");
     obj(contObj, "<< /Length "+content.length+" >>\nstream\n"+content+"\nendstream");
   });
   obj(fontStart, "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
   obj(fontStart+1, "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>");
+  images.forEach((im, k)=>{ const n = fontStart+2+k; offsets[n] = parts.reduce((a,p)=>a+p.length, 0);
+    add(n+" 0 obj\n<< /Type /XObject /Subtype /Image /Width "+im.pw+" /Height "+im.ph+" /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length "+im.bytes.length+" >>\nstream\n"); add(im.bytes); add("\nendstream\nendobj\n"); });
   const xrefAt = parts.reduce((a,p)=>a+p.length, 0);
-  const nObj = fontStart+1;
+  const nObj = fontStart+1+images.length;
   let xref = "xref\n0 "+(nObj+1)+"\n0000000000 65535 f \n";
   for (let i=1;i<=nObj;i++) xref += String(offsets[i]).padStart(10,"0")+" 00000 n \n";
   add(xref);
@@ -3249,7 +3263,7 @@ function renderFields(){
   if (f){ const logs = lg.byId.get(f.id)||[], sh = TM.fields2.fieldShape(f), ac = sh ? (+f.acres || GEO.acres(f.boundary)) : 0;
     body = `<div class="fld-panel" data-key="${esc(f.id)}"><div class="fld-head"><span class="fld-nm">📍 ${esc(f.name)}</span>${N.hasNew(f)?' <span class="badge">🛰 New image</span>':""}
       <div class="tiny muted">${f.grower||f.farm?esc(gfTxt(f))+" · ":""}${sh?fmt(ac,1)+" ac":"no boundary"}${f.src&&f.src.type==="shapefile"?" · shapefile":""}</div></div>
-      <div class="fld-acts" data-id="${f.id}"><button class="btn sm" data-act="log">📝 Log Spray</button>${sh?`<button class="btn alt sm" data-act="ndvi">🛰 NDVI</button>`:""}<button class="btn alt sm" data-act="open">🗺 Map</button></div>
+      <div class="fld-acts" data-id="${f.id}">${sh?`<button class="btn alt sm" data-act="ndvi">🛰 NDVI</button>`:""}<button class="btn alt sm" data-act="open">🗺 Map</button></div>
       <h3 class="fld-rh">Spray Records <span class="badge">${logs.length}</span></h3>
       ${logs.length ? logs.map(TM.logRowHtml).join("") : `<div class="empty small">No spray records for this field yet.</div>`}</div>`; }
   else if (!S.fields.length && !G.length) body = `<div class="empty small">Start with ＋ Add grower, then add its farms and fields — or import a shapefile. Spray records you save with “Save as a field” also show up here.</div>`;
@@ -3271,7 +3285,7 @@ function renderFields(){
   $("fieldImport").onclick = ()=>{ IMP.preset = null; $("fieldFile").click(); };
   el.querySelectorAll("details.fld").forEach(d=>d.addEventListener("toggle", ()=>{ d.open ? FLD.open.add(d.dataset.key) : FLD.open.delete(d.dataset.key); }));
   el.querySelectorAll(".fld-acts [data-act]").forEach(b=>b.onclick=()=>{ const x = S.fields.find(y=>y.id===b.closest(".fld-acts").dataset.id); if (!x) return;
-    if (b.dataset.act==="open") TM.fieldFullScreen.open(x); else if (b.dataset.act==="ndvi") TM.ndviDlg(x); else logAtField(x); });
+    if (b.dataset.act==="open") TM.fieldMap.open(x); else if (b.dataset.act==="ndvi") TM.ndviDlg(x); });
   TM.bindLogRows(el);
 }
 /* ＋ / ✎ for grower and farm: a compact inline panel under that row (only one open at a time) */
@@ -3369,7 +3383,7 @@ function fieldSprays(f){
 }
 function fieldDlg(f){
   const sh = TM.fields2.fieldShape(f), sp = fieldSprays(f);
-  openDlg("📍 "+f.name, `<div class="fmap sm" id="fdMap"></div><button class="btn alt block" id="fdFull" style="margin-top:8px">⛶ Full Screen Map</button>
+  openDlg("📍 "+f.name, `<div class="fmap sm" id="fdMap"></div>
     ${sh?`<button class="btn block" id="fdNdvi" style="margin-top:8px">🛰 NDVI Satellite Images${TM.fields2.ndvi.hasNew(f)?" · New":""}</button>`:`<p class="tiny muted" style="margin:8px 0 0">Add a boundary (✏️ Edit field › Draw boundary, or import a shapefile) to see NDVI images.</p>`}
     <table class="kv" style="margin-top:8px">${f.src&&f.src.type==="shapefile"?`<tr><th>Boundary</th><td>Shapefile${f.src.file?" “"+esc(f.src.file)+"”":""}${f.shape?" · "+f.shape.length+" part"+(f.shape.length===1?"":"s"):""}<br><span class="tiny muted">${esc(f.src.crs||"")}</span></td></tr>`:""}${sp.length?`<tr><th>Recent Sprays</th><td>${sp.map(r=>`${esc(dtTxt(r.dt))}${r.mixName?" · "+esc(r.mixName):""}`).join("<br>")}</td></tr>`:""}<tr><th>Location</th><td>${locSummary({lat:f.lat, lon:f.lon, boundary:f.boundary, bAcres:f.acres})}</td></tr></table>
     <div style="margin-top:10px">${gfPickerHtml("fd")}</div><p class="tiny muted" id="fdGFMsg" style="margin:4px 0 0" aria-live="polite"></p>
@@ -3377,7 +3391,6 @@ function fieldDlg(f){
     <div class="casc-del" style="margin-top:8px"><span class="tiny muted">Spray records are never deleted — they move to Unassigned.</span><button class="btn danger sm" id="fdDel">🗑 Delete</button></div>`);
   miniMap("fdMap", {lat:f.lat, lon:f.lon, boundary:f.boundary, shape:f.shape});
   if ($("fdNdvi")) $("fdNdvi").onclick = ()=>TM.ndviDlg(f);
-  $("fdFull").onclick = ()=>TM.fieldFullScreen.open(f);
   $("fdLog").onclick = ()=>{ closeDlg(); logAtField(f); };
   bindGfPicker("fd", f.grower, f.farm, gf=>{ if ((f.grower||"")===gf.grower && (f.farm||"")===gf.farm) return;
     GF.touchField(f); f.grower = gf.grower; f.farm = gf.farm; persist("fields"); GF.ensure(gf.grower, gf.farm); NAV.showField(f); renderFields(); $("fdGFMsg").textContent = "✓ Saved"+(gf.grower||gf.farm ? " · "+gfTxt(gf) : " · no grower / farm"); });
@@ -5956,57 +5969,138 @@ async function ndviDlg(f, force){
 }
 TM.ndviDlg = ndviDlg;
 
-/* ---- v2.17.6 Field Map ⛶ Full Screen (Brian: the 🗺 Map button next to 🛰 NDVI on a selected field opened the small
-   square map; he wants a proper big view). Same treatment as NDVI Full Screen: whole-screen satellite map with the field
-   boundary, pinch zoom / pan, a big ✕, and quick actions (NDVI, Log Spray, Field Details, Directions). Uses the browser
-   Fullscreen API where it works; iPhone/iPad get a fixed full-viewport layer. Safe-area insets respected. */
-const FFS = { open:false, W:null, api:false, f:null, fit:null };
-function fieldFsCenter(f, shape){
+/* ---- v2.17.7 Field Map (Brian: the 🗺 Map button should not go full screen; make it the same size as the NDVI map).
+   Opens in the same dialog at the same size and placement as the 🛰 NDVI map (.fmap.nd-map, fit with the same padding):
+   satellite imagery with the field boundary (or the pin when there's no boundary), pinch zoom / pan, plus
+   🛰 NDVI, ℹ️ Field Details and 📍 Directions. The v2.17.6 full-screen field map overlay is gone. */
+function fieldMapCenter(f, shape){
   if (shape){ const b = FX.bbox(shape); return { lat:(b.s+b.n)/2, lon:(b.w+b.e)/2 }; }
   return GEO.valid(f.lat, f.lon) ? { lat:+f.lat, lon:+f.lon } : null;
 }
-function fieldFsOpen(f){
-  if (!f) return; if (FFS.open) fieldFsClose();
-  const shape = FX.fieldShape(f), c = fieldFsCenter(f, shape);
+function fieldMapDlg(f){
+  if (!f) return;
+  const shape = FX.fieldShape(f), c = fieldMapCenter(f, shape);
   if (!c){ toast("This field has no map location yet. Use ✏️ Rename, Map & Boundary to set it."); return; }
-  const host = $("dlg") && $("dlg").open ? $("dlg") : document.body;
-  const el = document.createElement("div"); el.id = "fldFs"; el.className = "nd-fs fld-fs"; el.setAttribute("role", "dialog"); el.setAttribute("aria-modal", "true"); el.setAttribute("aria-label", "Field Map · "+f.name);
-  const gf = [f.grower, f.farm].filter(Boolean).join(" › "), ac = isFinite(+f.acres) && +f.acres>0 ? fmt(+f.acres, 1)+" ac" : "";
+  const gf = [f.grower, f.farm].filter(Boolean).join(" › "), ac = shape ? fmt(+f.acres || GEO.acres(f.boundary), 1)+" ac" : "";
   const dir = "https://maps.apple.com/?daddr="+c.lat.toFixed(5)+","+c.lon.toFixed(5)+"&dirflg=d";
-  el.innerHTML = `<div class="fmap nd-fs-map" id="fldFsMap"></div>
-    <div class="nd-fs-top"><div class="nd-fs-info" id="fldFsInfo"><div><b>${esc(f.name)}</b>${ac?" · "+esc(ac):""}</div>${gf?`<div>${esc(gf)}</div>`:""}${shape?"":`<div class="tiny">No boundary yet · pin only</div>`}</div><button type="button" class="nd-fs-btn" id="fldFsX" aria-label="Close Map" title="Close Map">✕</button></div>
-    <div class="nd-fs-bot"><div class="nd-fs-dates fld-fs-acts" role="group" aria-label="Field Actions">${shape?`<button type="button" class="nd-fs-date" id="fldFsNdvi">🛰 NDVI</button>`:""}<button type="button" class="nd-fs-date" id="fldFsLog">📝 Log Spray</button><button type="button" class="nd-fs-date" id="fldFsDet">ℹ️ Field Details</button><a class="nd-fs-date" id="fldFsDir" href="${dir}" target="_blank" rel="noopener">📍 Directions</a></div></div>`;
-  host.appendChild(el); document.body.classList.add("nd-fs-on");
-  FFS.open = true; FFS.f = f;
-  const W = FFS.W = makeMap($("fldFsMap"), {loc:c, readOnly:true});
+  openDlg("🗺 Map · "+f.name, `<div class="fmap nd-map" id="fmMap"></div>
+    <p class="small" id="fmInfo" style="margin:8px 0 0">${[gf, ac].filter(Boolean).map(esc).join(" · ")}${shape?"":`${gf?" · ":""}<span class="muted">No Boundary Yet · Pin Only</span>`}</p>
+    <div class="fld-acts fm-acts" role="group" aria-label="Field Actions" style="margin-top:8px">${shape?`<button type="button" class="btn alt sm" id="fmNdvi">🛰 NDVI</button>`:""}<button type="button" class="btn alt sm" id="fmDet">ℹ️ Field Details</button><a class="btn alt sm" id="fmDir" href="${dir}" target="_blank" rel="noopener">📍 Directions</a></div>`);
+  const W = makeMap($("fmMap"), {loc:c, readOnly:true});
   if (W){
     let fitB = null;
     if (shape){ const p = L.polygon(shape, {color:"#ffd34d", weight:3, fillOpacity:.12, interactive:false}).addTo(W.map); fitB = p.getBounds(); }
     else W.setPin(c.lat, c.lon);
-    const fit = ()=>{ if (!FFS.W) return; W.map.invalidateSize(); if (fitB) W.map.fitBounds(fitB, {padding:[28,28], maxZoom:18}); else W.map.setView([c.lat, c.lon], 16); };
-    W.later(fit, 60); FFS.fit = fit; }
-  const done = fn => ()=>{ fieldFsClose(); fn(); };
-  $("fldFsX").onclick = fieldFsClose;
-  if ($("fldFsNdvi")) $("fldFsNdvi").onclick = done(()=>{ if ($("dlg") && $("dlg").open) closeDlg(); TM.ndviDlg(f); });
-  $("fldFsLog").onclick = done(()=>{ if ($("dlg") && $("dlg").open) closeDlg(); logAtField(f); });
-  $("fldFsDet").onclick = done(()=>{ if (!($("dlg") && $("dlg").open && $("fdMap"))) fieldDlg(f); });
-  if (host!==document.body){ const prev = TM.dlgCleanup; TM.dlgCleanup = ()=>{ fieldFsClose(); if (prev) prev(); }; }
-  FFS.api = false; const req = el.requestFullscreen || el.webkitRequestFullscreen;
-  if (req && (document.fullscreenEnabled || document.webkitFullscreenEnabled)){
-    try { const p = req.call(el); FFS.api = true; if (p && p.then) p.then(()=>FFS.fit && setTimeout(FFS.fit, 80)).catch(()=>{ FFS.api = false; }); } catch(e){ FFS.api = false; } }
-  setTimeout(()=>{ const x = $("fldFsX"); if (x) x.focus({preventScroll:true}); }, 30);
+    TM.dlgCleanup = ()=>W.destroy();
+    W.later(()=>{ W.map.invalidateSize(); if (fitB) W.map.fitBounds(fitB, {padding:[12,12], maxZoom:17}); else W.map.setView([c.lat, c.lon], 16); }, 80); }
+  if ($("fmNdvi")) $("fmNdvi").onclick = ()=>TM.ndviDlg(f);
+  $("fmDet").onclick = ()=>fieldDlg(f);
 }
-function fieldFsClose(){
-  if (!FFS.open) return; FFS.open = false;
-  if (FFS.api && fsEl()){ try { const x = document.exitFullscreen || document.webkitExitFullscreen; const p = x && x.call(document); if (p && p.catch) p.catch(()=>{}); } catch(e){} }
-  FFS.api = false;
-  if (FFS.W){ try { FFS.W.destroy(); } catch(e){} } FFS.W = null; FFS.f = null; FFS.fit = null;
-  const el = $("fldFs"); if (el) el.remove(); if (!NFS.open) document.body.classList.remove("nd-fs-on");
-}
-["fullscreenchange","webkitfullscreenchange"].forEach(t=>document.addEventListener(t, ()=>{ if (FFS.open && FFS.api && !fsEl()) fieldFsClose(); else if (FFS.open && FFS.fit) setTimeout(FFS.fit, 50); }));
-window.addEventListener("orientationchange", ()=>{ if (FFS.open && FFS.fit) setTimeout(FFS.fit, 250); });
-document.addEventListener("keydown", e=>{ if (FFS.open && e.key==="Escape"){ e.preventDefault(); e.stopPropagation(); fieldFsClose(); } }, true);
-TM.fieldFullScreen = { open:fieldFsOpen, close:fieldFsClose, isOpen:()=>FFS.open };
+TM.fieldMap = { open:fieldMapDlg };
+
+/* ---- v2.17.7 Printed spray record: satellite picture of the field (Brian: the printed Field Location listed every boundary
+   point and a Google Maps link, which is excessive; just show a satellite image of the field with the boundary).
+   The picture is drawn into a canvas from Esri World Imagery tiles (they allow browser reads), the boundary (or the pin
+   when the field has no boundary) is drawn on top, and the result becomes a JPEG data URL <img>. A data URL needs no network
+   while printing, so it shows in iOS Safari print and in the built-in PDF (embedded as a real JPEG). Print / Share / PDF
+   wait until every picture is ready. Offline or blocked: the old outline sketch (no coordinates) is printed instead. */
+const FSAT = TM.fieldSat = {
+  SIDE:600, MIN_RATIO:0.5, SCALE:2, MAXZ:18, TILE_MS:8000,
+  TILE:(z,x,y)=>"https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/"+z+"/"+y+"/"+x,
+  cache:new Map(), seq:0
+};
+// Web Mercator world pixel at zoom z (256 px tiles)
+FSAT.px = (lat, lon, z) => { const n = 256*Math.pow(2, z), s = Math.sin(Math.max(-85.05, Math.min(85.05, lat))*Math.PI/180);
+  return { x:(lon+180)/360*n, y:(0.5 - Math.log((1+s)/(1-s))/(4*Math.PI))*n }; };
+// what to draw and where (Brian): not cropped tight. A boundary is shown with at least 1/8 mile (201 m / 660 ft) of
+// surroundings beyond its extent on every side; a field with only a pin is centered on the pin with about 1/2 mile
+// (805 m) each way, so the neighbouring fields show. The wider side of the 16:10 picture shows a bit more.
+FSAT.BUF_M = 201.168; FSAT.PIN_M = 804.672;
+FSAT.view = loc => {
+  if (!loc || !GEO.valid(loc.lat, loc.lon)) return null;
+  const b = Array.isArray(loc.boundary) && loc.boundary.length>=3 ? loc.boundary.filter(p=>p && isFinite(p[0]) && isFinite(p[1])) : null, hasB = b && b.length>=3;
+  let n, s, e, w; const buf = hasB ? FSAT.BUF_M : FSAT.PIN_M;
+  if (hasB){ n = Math.max(...b.map(p=>+p[0])); s = Math.min(...b.map(p=>+p[0])); e = Math.max(...b.map(p=>+p[1])); w = Math.min(...b.map(p=>+p[1])); }
+  else { n = s = +loc.lat; e = w = +loc.lon; }
+  const dLat = buf/111320, dLon = buf/(111320*Math.max(0.05, Math.cos((n+s)/2*Math.PI/180)));
+  n += dLat; s -= dLat; e += dLon; w -= dLon;
+  const a = FSAT.px(n, w, 0), c = FSAT.px(s, e, 0), W0 = Math.max(c.x-a.x, 1e-12), H0 = Math.max(c.y-a.y, 1e-12);
+  // the picture is the squared-off extent itself (a rectangle the shape of the buffered bounding box, longest side
+  // FSAT.SIDE px); only a very long, thin field gets extra imagery on its short sides (ratio kept ≥ FSAT.MIN_RATIO).
+  // The imagery always fills the whole rectangle: no circular crop or mask, even for a round pivot.
+  const r = Math.max(FSAT.MIN_RATIO, Math.min(1/FSAT.MIN_RATIO, W0/H0)), PW = Math.round(r>=1 ? FSAT.SIDE : FSAT.SIDE*r), PH = Math.round(r>=1 ? FSAT.SIDE/r : FSAT.SIDE);
+  const z = Math.min(FSAT.MAXZ, Math.log2(Math.min(PW/W0, PH/H0)));
+  const cx = (a.x+c.x)/2, cy = (a.y+c.y)/2;
+  const v = { z, cx, cy, W:PW, H:PH, box:{n, s, e, w} };
+  return Object.assign(v, hasB ? { kind:"boundary", pts:b } : { kind:"pin", pin:[+loc.lat, +loc.lon] });
+};
+// tiles covering the picture: tile zoom gives ≥ SCALE tile pixels per picture pixel (capped at the imagery's max zoom)
+FSAT.tiles = v => { const zt = Math.min(FSAT.MAXZ, Math.max(0, Math.ceil(v.z + Math.log2(FSAT.SCALE)))), k = Math.pow(2, zt - v.z);
+  const x0 = v.cx*Math.pow(2, zt) - v.W/2*k, y0 = v.cy*Math.pow(2, zt) - v.H/2*k, n = Math.pow(2, zt), out = [];
+  for (let ty = Math.floor(y0/256); ty <= Math.floor((y0+v.H*k)/256); ty++) for (let tx = Math.floor(x0/256); tx <= Math.floor((x0+v.W*k)/256); tx++){
+    if (ty<0 || ty>=n) continue; out.push({ z:zt, x:((tx%n)+n)%n, y:ty, dx:(tx*256-x0)/k, dy:(ty*256-y0)/k, size:256/k }); }
+  return out; };
+// picture position (0..W, 0..H) of a lat/lon
+FSAT.at = (v, lat, lon) => { const p = FSAT.px(lat, lon, 0), s = Math.pow(2, v.z); return { x:v.W/2 + (p.x - v.cx)*s, y:v.H/2 + (p.y - v.cy)*s }; };
+FSAT.key = v => v.kind+"|"+(v.pts ? JSON.stringify(v.pts) : v.pin.join(","));
+FSAT.loadTile = async url => {
+  const ctl = typeof AbortController==="function" ? new AbortController() : null, t = setTimeout(()=>ctl && ctl.abort(), FSAT.TILE_MS);
+  try { const r = await fetch(url, {mode:"cors", credentials:"omit", signal:ctl ? ctl.signal : undefined}); if (!r.ok) throw new Error("HTTP "+r.status);
+    const blob = await r.blob();
+    if (typeof createImageBitmap==="function"){ try { return await createImageBitmap(blob); } catch(e){} }
+    const u = URL.createObjectURL(blob);
+    try { return await new Promise((res, rej)=>{ const im = new Image(); im.onload = ()=>res(im); im.onerror = ()=>rej(new Error("bad image")); im.src = u; }); }
+    finally { setTimeout(()=>URL.revokeObjectURL(u), 1000); } }
+  finally { clearTimeout(t); } };
+// → { url:"data:image/jpeg;base64,…", w, h, kind } or null when it can't be drawn (no canvas, offline, every tile failed)
+FSAT.render = async loc => {
+  const v = FSAT.view(loc); if (!v) return null;
+  const key = FSAT.key(v); if (FSAT.cache.has(key)) return FSAT.cache.get(key);
+  const cv = document.createElement("canvas"), S2 = FSAT.SCALE; cv.width = v.W*S2; cv.height = v.H*S2;
+  let ctx = null; try { ctx = cv.getContext("2d"); } catch(e){} if (!ctx) return null;
+  if (navigator.onLine===false) return null;
+  const T = FSAT.tiles(v), imgs = await Promise.all(T.map(t=>FSAT.loadTile(FSAT.TILE(t.z, t.x, t.y)).catch(()=>null)));
+  if (!imgs.some(Boolean)) return null;
+  ctx.scale(S2, S2); ctx.fillStyle = "#c9cfc4"; ctx.fillRect(0, 0, v.W, v.H);
+  T.forEach((t, i)=>{ if (imgs[i]) ctx.drawImage(imgs[i], t.dx, t.dy, t.size+0.5, t.size+0.5); });
+  ctx.lineJoin = "round";
+  if (v.kind==="boundary"){ const P = v.pts.map(p=>FSAT.at(v, p[0], p[1]));
+    const path = ()=>{ ctx.beginPath(); P.forEach((q, i)=>i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y)); ctx.closePath(); };
+    path(); ctx.fillStyle = "rgba(255,211,77,0.12)"; ctx.fill();
+    ctx.strokeStyle = "rgba(0,0,0,0.55)"; ctx.lineWidth = 5; ctx.stroke();
+    ctx.strokeStyle = "#ffd34d"; ctx.lineWidth = 2.6; ctx.stroke(); }
+  else { const q = FSAT.at(v, v.pin[0], v.pin[1]); ctx.beginPath(); ctx.arc(q.x, q.y, 7, 0, 2*Math.PI); ctx.fillStyle = "#d33"; ctx.fill(); ctx.lineWidth = 2.5; ctx.strokeStyle = "#fff"; ctx.stroke(); }
+  // north arrow and imagery credit
+  ctx.font = "bold 13px Helvetica, Arial, sans-serif"; ctx.textAlign = "center"; ctx.fillStyle = "rgba(0,0,0,0.55)"; ctx.fillRect(v.W-34, 8, 26, 30);
+  ctx.fillStyle = "#fff"; ctx.fillText("N", v.W-21, 22); ctx.fillText("↑", v.W-21, 35);
+  ctx.font = "10px Helvetica, Arial, sans-serif"; ctx.textAlign = "right"; const cr = "Imagery © Esri, Maxar, Earthstar Geographics";
+  ctx.fillStyle = "rgba(255,255,255,0.75)"; ctx.fillRect(v.W-ctx.measureText(cr).width-10, v.H-15, ctx.measureText(cr).width+10, 15); ctx.fillStyle = "#222"; ctx.fillText(cr, v.W-5, v.H-4);
+  let url = ""; try { url = cv.toDataURL("image/jpeg", 0.85); } catch(e){ return null; }
+  if (!/^data:image\/jpeg;base64,/.test(url)) return null;
+  const out = { url, w:cv.width, h:cv.height, kind:v.kind }; FSAT.cache.set(key, out); return out;
+};
+FSAT.caption = (loc, kind) => kind==="boundary" || (loc && loc.boundary && loc.boundary.length>=3)
+  ? "Satellite image · field boundary in yellow · "+fmt(+loc.bAcres || GEO.acres(loc.boundary), 1)+" ac mapped · 1/8 mile shown around the field" : "Satellite image · red dot = field pin · about 1/2 mile each way";
+// printed-record cell: a placeholder that FSAT.fillSheet() replaces with the picture
+FSAT.cellHtml = (loc, i) => `<div class="ps-sat" data-sat="${i}"><span class="ps-sat-wait">Loading Satellite Image…</span></div>`;
+FSAT.imgHtml = (pic, loc) => `<img class="ps-sat-img" data-pdf-img="1" data-w="${pic.w}" data-h="${pic.h}" src="${pic.url}" alt="Satellite image of the field" style="display:block;width:auto;height:auto;max-width:100%;max-height:3.4in;border:1px solid #888"><div style="font-size:8.5pt;color:#444;margin-top:3px">${esc(FSAT.caption(loc, pic.kind))}</div>`;
+FSAT.fallbackHtml = loc => { const b = loc && loc.boundary && loc.boundary.length>=3;
+  return b ? `<div style="display:flex;gap:10px;align-items:flex-start">${GEO.svg(loc.boundary, 120, loc)}<span style="font-size:8.5pt;color:#444">Boundary sketch · ${esc(fmt(+loc.bAcres || GEO.acres(loc.boundary), 1))} ac mapped<br>(satellite image couldn't load)</span></div>`
+    : `<span style="font-size:8.5pt;color:#444">Satellite image couldn't load.</span>`; };
+// fill every placeholder in the print sheet; Print / Share / Download wait (disabled) until done
+FSAT.fillSheet = async (recs) => {
+  const root = $("printSheet"), cells = root ? [...root.querySelectorAll(".ps-sat[data-sat]")] : []; if (!cells.length) return;
+  const my = ++FSAT.seq, btns = ["pvPrint","pvShare","pvDl"].map($).filter(Boolean), note = $("pvNote"), base = note ? note.textContent : "";
+  btns.forEach(b=>b.disabled = true); if (note) note.textContent = "Loading the field satellite image"+(cells.length>1?"s":"")+"…";
+  await Promise.all(cells.map(async el=>{ const r = recs[+el.dataset.sat], loc = r && r.loc; let pic = null;
+    try { pic = await FSAT.render(loc); } catch(e){ pic = null; }
+    if (my!==FSAT.seq || !el.isConnected) return;
+    if (pic){ el.innerHTML = FSAT.imgHtml(pic, loc); const im = el.querySelector("img"); try { if (im.decode) await im.decode(); } catch(e){} }
+    else el.innerHTML = FSAT.fallbackHtml(loc); }));
+  if (my!==FSAT.seq) return;
+  btns.forEach(b=>b.disabled = false); if (note) note.textContent = base;
+  FSAT.ready = true;
+};
 
 /* ---- v2.17.6 Market prices ticker (Brian: local cash prices scrolling across the top; pick crops and where from; can turn off).
    Real posted cash bids, fetched straight from each elevator's public cash-bid page (the Bushel/FarmCentric pages these
@@ -6253,8 +6347,8 @@ function blankLog(){
   const lp = logProducts(S.mix, ac), sf = fieldByName(S.mix.name) || navF || null;
   const navG = nav.g && nav.g!==NONE ? nav.g : "", navFarm = navG && nav.f && nav.f!==NONE ? nav.f : "";
   const grower = sf ? sf.grower||"" : navG || S.settings.lastGrower||"", farm = sf ? sf.farm||"" : navG ? navFarm : S.settings.lastFarm||"";
-  return { id:null, job:S.mix.name||"", dt:nowLocal(), grower, farm, field:sf ? sf.name : "", crop:"", acres:ac, pests:"", mixRef:"__cur", mixName:S.mix.name||"", products:lp.products, tanks:lp.tanks, carrier:lp.carrier, carrierAmt:lp.carrierAmt,
-    applicator:S.settings.lastApplicator||"", license:S.settings.lastLicense||"", wx:{}, notes:"", rinsate:"", loc:sf ? fieldLoc(sf.name) : null };
+  return { id:null, job:S.mix.name||"", dt:nowLocal(), grower, farm, field:sf ? sf.name : "", crop:"", acres:ac!=="" ? ac : sf && +sf.acres ? +(+sf.acres).toFixed(2) : "", pests:"", mixRef:"__cur", mixName:S.mix.name||"", products:lp.products, tanks:lp.tanks, carrier:lp.carrier, carrierAmt:lp.carrierAmt,
+    applicator:S.settings.lastApplicator||"", license:S.settings.lastLicense||"", wx:{}, notes:"", rinsate:"", loc:sf && sf===navF ? {lat:sf.lat, lon:sf.lon, boundary:clone(sf.boundary||[]), bAcres:sf.acres||"", fieldId:sf.id} : sf ? fieldLoc(sf.name) : null };
 }
 // a saved field with this exact name (e.g. the mix is named after the field) prefills the location
 // v2.17.2: names can repeat on different farms. With a grower/farm given, link only that farm's field (or the one
@@ -6490,10 +6584,11 @@ function renderLog(){
 }
 TM.renderLog = renderLog;
 function editLog(r){ beginLog(clone(r)); $("logFormCard").scrollIntoView({behavior:"smooth"}); }
-function recHtml(r, print){
-  const w = r.wx||{}, L = r.loc, hasL = L && GEO.valid(L.lat, L.lon), sk = print && hasL && L.boundary && L.boundary.length>=3 ? GEO.svg(L.boundary, 120, L) : "";
+function recHtml(r, print, satIdx){
+  const w = r.wx||{}, L = r.loc, hasL = L && GEO.valid(L.lat, L.lon);
+  // v2.17.7: the printed record shows a satellite picture of the field (no coordinates, boundary points or map link)
   return `<table class="kv">${r.job?`<tr><th>Job</th><td>${esc(r.job)}</td></tr>`:""}<tr><th>Date / Time</th><td>${esc(dtTxt(r.dt))}</td></tr>${r.grower?`<tr><th>Grower</th><td>${esc(r.grower)}</td></tr>`:""}${r.farm?`<tr><th>Farm</th><td>${esc(r.farm)}</td></tr>`:""}<tr><th>Field</th><td>${esc(r.field)}${r.crop?" · "+esc(r.crop):""}</td></tr>
-    ${hasL?`<tr><th>Field Location</th><td>${locSummary(L, print)}${sk?`<div style="display:flex;gap:10px;align-items:flex-start;margin-top:6px"><div style="flex:0 0 auto">${sk}</div><span style="font-size:8.5pt;color:#444">Boundary sketch (red dot = pin).<br>Corners: ${L.boundary.map(p=>GEO.fmt(p[0],p[1])).join("; ")}</span></div>`:""}</td></tr>`:""}
+    ${hasL?`<tr><th>Field Location</th><td>${print ? TM.fieldSat.cellHtml(L, satIdx) : locSummary(L)}</td></tr>`:""}
     <tr><th>Acres / Loads</th><td>${esc(r.acres)} ac · ${esc(r.tanks)} tank loads</td></tr>${r.pests?`<tr><th>Target Pests</th><td>${esc(r.pests)}</td></tr>`:""}
     <tr><th>Mix</th><td>${esc(r.mixName||"—")}<br><span class="small muted">${esc(r.carrier||"")}</span>${r.carrierAmt?`<br><span class="small">${esc(r.carrierAmt)}</span>`:""}</td></tr>
     <tr><th>Products</th><td>${(r.products||[]).map(p=>`${esc(p.name)}${registrationText(p)?" ("+esc(registrationText(p))+")":p.custom?" (custom"+((CCAT[p.cat]||{}).l?", "+esc(CCAT[p.cat].l):"")+")":""}: ${esc(p.rate)}${p.total?" · total "+esc(p.total):""}`).join("<br>")||"—"}</td></tr>
@@ -6511,13 +6606,14 @@ function printLog(recs){
   recs = recs || filteredLog();
   if (!recs.length) return toast("No records to print");
   $("printSheet").innerHTML = `<h1>Pesticide Application Record${recs.length>1?"s":""}</h1><div class="ps-meta">Printed ${new Date().toLocaleString()} · SprayTrue v${APP_VERSION} · ${recs.length} record${recs.length===1?"":"s"}</div>` +
-    recs.map(r=>`<h3 style="margin:12pt 0 2pt">${esc(dtTxt(r.dt))} · ${esc([r.job, [gfTxt(r), r.field].filter(Boolean).join(" › ")].filter(Boolean).join(" · "))}</h3>`+recHtml(r, true).replace('class="kv"','')).join("") +
+    recs.map((r, i)=>`<h3 style="margin:12pt 0 2pt">${esc(dtTxt(r.dt))} · ${esc([r.job, [gfTxt(r), r.field].filter(Boolean).join(" › ")].filter(Boolean).join(" · "))}</h3>`+recHtml(r, true, i).replace('class="kv"','')).join("") +
     `<p style="font-size:10pt;margin-top:12pt">Applicator signature: ______________________________ Date: ____________</p>`;
   const t = recs.length===1 ? "Spray record · "+(recs[0].job||recs[0].field||dtTxt(recs[0].dt)) : "Spray records ("+recs.length+")";
   openPrintView("log", t, "SprayTrue · v"+APP_VERSION+"\n\n"+recs.map(r=>recTxt(r)).join("\n\n"));
+  TM.fieldSat.fillSheet(recs);
 }
 function recTxt(r){ const w = r.wx||{}, L = r.loc, hasL = L && GEO.valid(L.lat, L.lon);
-  return [r.job?"Job: "+r.job:"", dtTxt(r.dt)+" · "+(r.field||"")+(r.crop?" · "+r.crop:""), r.grower||r.farm ? [r.grower?"Grower: "+r.grower:"", r.farm?"Farm: "+r.farm:""].filter(Boolean).join(" · ") : "", hasL ? "Location: "+GEO.fmt(L.lat, L.lon)+" ("+GEO.dms(L.lat, L.lon)+") "+GEO.mapsUrl(L.lat, L.lon)+(L.boundary&&L.boundary.length>=3?" · boundary "+fmt(+L.bAcres||GEO.acres(L.boundary),1)+" ac":"") : "", (r.acres?r.acres+" ac · ":"")+(r.tanks?r.tanks+" tank loads":""), r.pests?"Pests: "+r.pests:"", "Mix: "+(r.mixName||"—")+(r.carrier?" ("+r.carrier+")":""), r.carrierAmt||"",
+  return [r.job?"Job: "+r.job:"", dtTxt(r.dt)+" · "+(r.field||"")+(r.crop?" · "+r.crop:""), r.grower||r.farm ? [r.grower?"Grower: "+r.grower:"", r.farm?"Farm: "+r.farm:""].filter(Boolean).join(" · ") : "", hasL && L.boundary && L.boundary.length>=3 ? "Field boundary: "+fmt(+L.bAcres||GEO.acres(L.boundary),1)+" ac mapped" : "", (r.acres?r.acres+" ac · ":"")+(r.tanks?r.tanks+" tank loads":""), r.pests?"Pests: "+r.pests:"", "Mix: "+(r.mixName||"—")+(r.carrier?" ("+r.carrier+")":""), r.carrierAmt||"",
     ...(r.products||[]).map(p=>"  - "+p.name+(registrationText(p)?" ("+registrationText(p)+")":"")+": "+p.rate+(p.total?" · total "+p.total:"")),
     "Weather: "+[w.tempF?w.tempF+"°F":"", w.rh?w.rh+"% RH":"", w.windMph?"wind "+w.windMph+" mph "+(w.windDirTxt||""):"", w.gustMph?"gusts "+w.gustMph+" mph":"", w.sky||""].filter(Boolean).join(" · "),
     "Applicator: "+(r.applicator||"")+(r.license?" #"+r.license:""), r.rinsate?"Rinsate: "+r.rinsate:"", r.notes?"Notes: "+r.notes:""].filter(Boolean).join("\n"); }
