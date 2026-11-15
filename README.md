@@ -1,4 +1,11 @@
-# SprayTrue (v2.17.2 — live; published Nov 14, 2026)
+# SprayTrue (v2.17.3 — live; published Nov 14, 2026)
+
+## v2.17.3 — NDVI ⛶ Full Screen (live)
+
+- **Fields › field › 🛰 NDVI**: once an image date is selected and showing, a **⛶ Full Screen** button opens that date's NDVI over the field on a full-screen map — pinch to zoom and drag to pan, white boundary outline, field name, date, **Mean NDVI** and % clear on top, a collapsible **Legend**, and the dates as a swipeable row at the bottom so you can **switch dates without leaving full screen** (undownloaded dates download as before; offline shows a message and stays put).
+- Fills the whole screen on iPhone Safari and installed apps with a fixed full-viewport layer (iOS has no element fullscreen); on desktop/Android it also uses the browser Fullscreen API. Respects the notch/home-bar safe areas and re-fits after rotation.
+- Close with the big **✕**, Escape, or by leaving browser fullscreen — you return to the NDVI dialog on the same date. Closing the dialog also closes full screen.
+- No data, sync or NDVI calculation changes. Tests: `tools/test32.js` (32 assertions).
 
 ## v2.17.2 — Saved fields: no 21-field “limit”; same names on different farms (live)
 
