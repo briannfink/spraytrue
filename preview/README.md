@@ -1,6 +1,6 @@
-# SprayTrue (v2.17.8 — PREVIEW ONLY; live is v2.17.7)
+# SprayTrue (v2.17.8 — live; published Nov 15, 2026)
 
-## v2.17.8 — NDVI values corrected (preview)
+## v2.17.8 — NDVI values corrected (live)
 
 - **Root cause of NDVI above 1 (e.g. mean 1.92, Contrasted 0.97–1.02, healthy field yellow):** Earth Search's Sentinel-2 images already have ESA's −1000 reflectance offset removed from the pixels (`earthsearch:boa_offset_applied: true`), but their metadata still lists offset −0.1. The app subtracted it again, so red reflectance went negative over healthy crops and NDVI went above 1. Every NDVI the app showed before was too high (healthy irrigated crops read 0.8–1.0+ instead of about 0.7–0.8; bare fields too, less visibly).
 - The offset is now chosen per image: 0 when the image says the offset is applied (or doesn't say), −0.1 only when it explicitly isn't applied on processing baseline 04.00 or later. A pixel check backs this up: if the median red reflectance of clear vegetation / bare-soil pixels would be 0 or below with −0.1, offset 0 is used.
