@@ -1,6 +1,6 @@
-# SprayTrue (v2.17.7 — PREVIEW ONLY; live is v2.17.6)
+# SprayTrue (v2.17.7 — live; published Nov 14, 2026)
 
-## v2.17.7 — Printed field satellite image, smaller field map (preview)
+## v2.17.7 — Printed field satellite image, smaller field map (live)
 
 - **Printed spray record › Field Location** is now a satellite image of the field with the boundary drawn in yellow (no pin coordinates, no list of boundary points, no Google Maps link). The image is squared off to the boundary's bounding box plus 1/8 mile (201 m / 660 ft) on every side; the imagery fills the whole rectangle (never a circular crop, even for a round pivot). A field without a boundary shows the area around its pin (about 1/2 mile each way) with a red dot; a record with no location has no Field Location row. The image is drawn from Esri World Imagery tiles into a canvas and printed as a built-in JPEG, so it doesn't depend on the network while printing (iOS Safari print), and the Share / Download PDF embeds it as a real image. Print / Share / PDF wait (disabled, "Loading the field satellite image…") until it's ready; offline, the outline sketch is printed instead (also without coordinates). The share text drops the coordinates and map link. On-screen record view and CSV export are unchanged.
 - **Fields › selected field:** the 📝 Log Spray button is gone; **＋ New Spray Record** right below starts a record for the selected field (it now carries that exact field's location and acres, even when another farm has a field with the same name).
