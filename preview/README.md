@@ -9,6 +9,7 @@
 - **Smooth** toggle (on by default, remembered on this device) next to ⛶ Full Screen, and **Smooth: On/Off** inside Full Screen. Off shows the original 10 m pixels.
 - New downloads store the compact 10 m values with the cached image. Older cached images still show (also offline); when online they are quietly re-downloaded once so Smooth can be used.
 - No data, sync or calculation changes. Tests: `tools/test33.js` (27 assertions).
+- **Basic | Contrasted** colors (like OneSoil), in the NDVI dialog and Full Screen. **Basic** is the fixed absolute NDVI scale (unchanged, default). **Contrasted** stretches a red-yellow-green ramp across this image's own in-field range (2nd–98th percentile of the clear 10 m pixels inside the boundary, at least 0.05 wide) so differences within the field stand out; its legend shows the NDVI at each end and notes it's relative to this field and date. Works with Smooth on or off, remembered on this device. Images cached before v2.17.4 show Basic until they update online. Mean NDVI, % clear and stats unchanged. Tests: `tools/test34.js` (29 assertions).
 
 ## v2.17.3 — NDVI ⛶ Full Screen (live)
 
