@@ -1,6 +1,6 @@
-# SprayTrue (v2.17.5 — PREVIEW ONLY; live is v2.17.4)
+# SprayTrue (v2.17.5 — live; published Nov 14, 2026)
 
-## v2.17.5 — Weather: hourly outlook keeps working and says why (preview)
+## v2.17.5 — Weather: hourly outlook keeps working and says why (live)
 
 - With a Tempest or WU station, "Get Station Reading" used to drop the Open-Meteo error and only say "Couldn't get the Open-Meteo hourly outlook". It now shows the real reason (e.g. "Open-Meteo HTTP 429 (too many requests from this network): …", "didn't answer in 15 s", or "couldn't reach Open-Meteo (Load failed)").
 - One automatic retry after 2 s for network errors, timeouts, 429 and 5xx (not for a 400).

@@ -1,4 +1,14 @@
-# SprayTrue (v2.17.4 — live; published Nov 14, 2026)
+# SprayTrue (v2.17.5 — live; published Nov 14, 2026)
+
+## v2.17.5 — Weather: hourly outlook keeps working and says why (live)
+
+- With a Tempest or WU station, "Get Station Reading" used to drop the Open-Meteo error and only say "Couldn't get the Open-Meteo hourly outlook". It now shows the real reason (e.g. "Open-Meteo HTTP 429 (too many requests from this network): …", "didn't answer in 15 s", or "couldn't reach Open-Meteo (Load failed)").
+- One automatic retry after 2 s for network errors, timeouts, 429 and 5xx (not for a 400).
+- If Open-Meteo still fails: the last good outlook for that spot when under 2 h old (past hours dropped, age shown); otherwise the US National Weather Service hourly forecast (wind, direction, temp, RH, rain chance; no gusts or 80 m inversion hint). The heading names the source.
+- Weather Underground fallback for a station without coordinates now uses the Weather tab location (it referenced a value that never existed). No forecast request is made without a valid location.
+- Hourly table shows "—" for values a source doesn't give instead of failing.
+- No data, sync, calculation or NDVI changes. Tests: `tools/test35.js` (23 assertions).
+
 
 ## v2.17.4 — Smooth NDVI, Basic | Contrasted (live)
 
