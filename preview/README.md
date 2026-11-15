@@ -1,4 +1,15 @@
-# SprayTrue (v2.17.7 — live; published Nov 14, 2026)
+# SprayTrue (v2.17.8 — PREVIEW ONLY; live is v2.17.7)
+
+## v2.17.8 — NDVI values corrected (preview)
+
+- **Root cause of NDVI above 1 (e.g. mean 1.92, Contrasted 0.97–1.02, healthy field yellow):** Earth Search's Sentinel-2 images already have ESA's −1000 reflectance offset removed from the pixels (`earthsearch:boa_offset_applied: true`), but their metadata still lists offset −0.1. The app subtracted it again, so red reflectance went negative over healthy crops and NDVI went above 1. Every NDVI the app showed before was too high (healthy irrigated crops read 0.8–1.0+ instead of about 0.7–0.8; bare fields too, less visibly).
+- The offset is now chosen per image: 0 when the image says the offset is applied (or doesn't say), −0.1 only when it explicitly isn't applied on processing baseline 04.00 or later. A pixel check backs this up: if the median red reflectance of clear vegetation / bare-soil pixels would be 0 or below with −0.1, offset 0 is used.
+- A pixel with red or NIR reflectance of 0 or below is no data, so NDVI can't leave −1…1. Mean, percentiles, histogram, picture and Contrasted all come from the same 10 m values. A stat outside −1…1 is never displayed.
+- **Contrasted:** range kept inside −1…1, at least 0.15 wide. A very even field (narrower than 0.15) is placed on the ramp by its actual NDVI (0 → red end, 0.9 → green end), so a uniform healthy field shows green instead of mid-ramp yellow, with the note "Very even field: Contrasted shows little variation".
+- Images saved on a device before this fix are never shown: the date says "Updating…" and recomputes once (≈2–3 MB) when online; the corrected picture and stats replace the old ones.
+- Real check: Sentinel-2 S2C_10TGT_20260811 green block (red 674 / NIR 4337) → 0.73 (was 1.22); app mean 0.731 matches rasterio.
+- Tests: `tools/test39.js` (new), test24 (offset + live Sentinel-2 vs the fixed `ndvi_crosscheck.py`), test33/34 updated.
+
 
 ## v2.17.7 — Printed field satellite image, smaller field map (live)
 

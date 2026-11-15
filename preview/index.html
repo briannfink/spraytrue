@@ -1288,7 +1288,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
    3. Storage (localStorage)
    4. UI: Mix, Order/Jar test, Lookup (EPA), Saved, Print
    ===================================================================== */
-const APP_VERSION = "2.17.7";
+const APP_VERSION = "2.17.8";
 const TM = window.TM = {};
 
 /* ---------- 1. Constants ---------- */
@@ -5617,14 +5617,35 @@ const NDVI = FX.ndvi = {
   RAMP:[[-1,"#7f3b08","< 0.1"],[0.1,"#b35806","0.1–0.2"],[0.2,"#e08214","0.2–0.3"],[0.3,"#fdb863","0.3–0.4"],[0.4,"#e6f598","0.4–0.5"],[0.5,"#a6d96a","0.5–0.6"],[0.6,"#66bd63","0.6–0.7"],[0.7,"#1a9850","0.7–0.8"],[0.8,"#00562b","≥ 0.8"]]
 };
 NDVI.cls = v => { let k = 0; for (let i=0; i<NDVI.RAMP.length; i++) if (i===0 || v>=NDVI.RAMP[i][0]) k = i; return k; };
-NDVI.value = (red, nir, scale=1e-4, offset=-0.1) => { const r = red*scale+offset, n = nir*scale+offset; return (n+r)>0 ? (n-r)/(n+r) : NaN; };
+/* v2.17.8: NDVI from surface reflectance. A pixel whose red or NIR reflectance is 0 or below (after scale/offset) has no
+   valid NDVI and counts as no data, so a value outside −1…1 can never appear (it used to: 1.92 mean, Contrasted 0.97–1.02). */
+NDVI.value = (red, nir, scale=1e-4, offset=0) => { const r = red*scale+offset, n = nir*scale+offset; if (!(r>0) || !(n>0)) return NaN;
+  const v = (n-r)/(n+r); return v>=-1 && v<=1 ? v : NaN; };
+/* v2.17.8: which reflectance offset to use for an image. Earth Search's sentinel-2-l2a COGs (processing baseline ≥ 04.00) already
+   have ESA's BOA_ADD_OFFSET (−1000 → −0.1) removed from the pixel values and say so with earthsearch:boa_offset_applied: true, but
+   their raster:bands still lists offset −0.1. Subtracting it again made red reflectance negative over healthy crops and NDVI > 1.
+   Offset 0 unless the item explicitly says the offset is NOT applied on a baseline ≥ 04.00; NDVI.load then double-checks with the
+   pixels themselves (NDVI.offsetCheck). Reflectance = DN × scale + offset. */
+NDVI.offsetFor = s => { if (!s) return 0; if (s.boa===true) return 0;
+  const pb = parseFloat(s.pb), declared = isFinite(+s.declOff) ? +s.declOff : -0.1;
+  return s.boa===false && (!isFinite(pb) || pb>=4) ? declared : 0; };
+// pixel check: with the chosen offset, the median red reflectance of clear vegetation / bare-soil pixels must be above 0.
+// If it isn't (a mislabelled item), the offset was already applied: use 0.
+NDVI.offsetCheck = (red, scl, scale, offset) => {
+  if (!offset) return { offset:0, src:"flag" };
+  const vals = [], sclAt = (x, y) => { if (!scl) return 4; const c = Math.floor((x-scl.x0)/scl.sx), r = Math.floor((scl.y0-y)/scl.sy); return c>=0&&r>=0&&c<scl.w&&r<scl.h ? scl.data[r*scl.w+c] : 0; };
+  for (let r=0; r<red.h; r++) for (let c=0; c<red.w; c++){ const R = red.data[r*red.w+c]; if (!R) continue;
+    const s = sclAt(red.x0+(c+.5)*red.sx, red.y0-(r+.5)*red.sy); if (s===4 || s===5) vals.push(R*scale+offset); }
+  if (!vals.length) return { offset, src:"flag" };
+  vals.sort((a,b)=>a-b); const med = vals[Math.floor(vals.length/2)];
+  return med>0 ? { offset, src:"flag" } : { offset:0, src:"pixels" }; };
 NDVI.utmFor = epsg => { const z = epsg%100, s = Math.floor(epsg/100)===327; if (!(epsg>=32601 && epsg<=32760)) throw new Error("Unexpected image projection EPSG:"+epsg); return FX.utm(z, s); };
 NDVI.utmBox = (shape, P, pad=20) => { let a=[Infinity,Infinity,-Infinity,-Infinity]; shape.flat(2).forEach(p=>{ const q = P.fwd(p[1], p[0]); a = [Math.min(a[0],q[0]),Math.min(a[1],q[1]),Math.max(a[2],q[0]),Math.max(a[3],q[1])]; }); return [a[0]-pad, a[1]-pad, a[2]+pad, a[3]+pad]; };
 // STAC search -> one best granule per date that fully covers the field
 NDVI.search = async (shape, sinceIso) => {
   const b = FX.bbox(shape), body = { collections:["sentinel-2-l2a"], bbox:[b.w, b.s, b.e, b.n], datetime:sinceIso+"/..", limit:100,
     sortby:[{field:"properties.datetime", direction:"desc"}],
-    fields:{ include:["id","geometry","properties.datetime","properties.eo:cloud_cover","properties.proj:epsg","properties.proj:code","assets.red","assets.nir","assets.scl"], exclude:["links"] } };
+    fields:{ include:["id","geometry","properties.datetime","properties.eo:cloud_cover","properties.proj:epsg","properties.proj:code","properties.earthsearch:boa_offset_applied","properties.s2:processing_baseline","assets.red","assets.nir","assets.scl"], exclude:["links"] } };
   const r = await fetch(NDVI.STAC, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)});
   if (!r.ok) throw new Error("Satellite catalog answered "+r.status);
   const txt = await r.text(); COG.bytes += txt.length; const j = JSON.parse(txt);
@@ -5637,7 +5658,8 @@ NDVI.pick = (features, shape) => {
     if (!corners.every(([x,y])=>polys.some(p=>inRing(x, y, p[0])))) continue;
     const a = f.assets||{}, red = a.red, nir = a.nir, scl = a.scl; if (!red || !nir || !scl) continue;
     const rb = (red["raster:bands"]||[])[0]||{}, pr = f.properties||{}, epsg = pr["proj:epsg"] || +String(pr["proj:code"]||"").split(":")[1];
-    const s = { id:f.id, dt:pr.datetime, date:String(pr.datetime).slice(0,10), cloud:pr["eo:cloud_cover"], epsg, red:red.href, nir:nir.href, scl:scl.href, scale:rb.scale ?? 1e-4, offset:rb.offset ?? -0.1, clear:null };
+    const s = { id:f.id, dt:pr.datetime, date:String(pr.datetime).slice(0,10), cloud:pr["eo:cloud_cover"], epsg, red:red.href, nir:nir.href, scl:scl.href, scale:rb.scale ?? 1e-4, declOff:rb.offset ?? -0.1, boa:typeof pr["earthsearch:boa_offset_applied"]==="boolean" ? pr["earthsearch:boa_offset_applied"] : null, pb:pr["s2:processing_baseline"] ?? null, clear:null };
+    s.offset = NDVI.offsetFor(s);
     const cur = byDate[s.date]; if (!cur || (s.cloud ?? 100) < (cur.cloud ?? 100)) byDate[s.date] = s;
   }
   return Object.values(byDate).sort((x,y)=>y.dt.localeCompare(x.dt));
@@ -5654,15 +5676,14 @@ NDVI.sclStats = (win, shape, P) => {
   return { clear: tot ? Math.round(100*clear/tot) : 0, cloud: tot ? Math.round(100*cloud/tot) : 0, snow: tot ? Math.round(100*snow/tot) : 0, px:tot };
 };
 // Full NDVI for a scene: stats from native 10 m pixels + a lat/lon raster clipped to the boundary
-NDVI.compute = (red, nir, scl, shape, P, scale, offset) => {
-  const vals = [], hist = new Array(NDVI.RAMP.length).fill(0); let tot = 0, masked = 0;
-  const sclAt = (x, y) => { if (!scl) return 4; const c = Math.floor((x-scl.x0)/scl.sx), r = Math.floor((scl.y0-y)/scl.sy); return c>=0&&r>=0&&c<scl.w&&r<scl.h ? scl.data[r*scl.w+c] : 0; };
-  for (let r=0; r<red.h; r++) for (let c=0; c<red.w; c++){
-    const x = red.x0+(c+.5)*red.sx, y = red.y0-(r+.5)*red.sy, ll = P.inv(x, y); if (!FX.inShape(ll[1], ll[0], shape)) continue; tot++;
-    const s = sclAt(x, y), R = red.data[r*red.w+c], N = nir.data[r*nir.w+c];
-    if (!NDVI.CLEAR.has(s) || !R || !N){ masked++; continue; }
-    const v = NDVI.value(R, N, scale, offset); if (!isFinite(v)){ masked++; continue; } vals.push(v); hist[NDVI.cls(v)]++;
-  }
+// v2.17.8: the stats are computed from exactly the same 10 m values as the picture and Contrasted (NDVI.grid), so the mean and
+// the p2–p98 range can no longer disagree.
+NDVI.compute = (red, nir, scl, shape, P, scale, offset) => NDVI.gridStats(NDVI.grid(red, nir, scl, P, scale, offset), shape, P);
+NDVI.gridStats = (g, shape, P) => {
+  const vals = [], hist = new Array(NDVI.RAMP.length).fill(0); let tot = 0; P = P || NDVI.utmFor(g.epsg);
+  for (let r=0; r<g.h; r++) for (let c=0; c<g.w; c++){
+    const ll = P.inv(g.x0+(c+.5)*g.sx, g.y0-(r+.5)*g.sy); if (!FX.inShape(ll[1], ll[0], shape)) continue; tot++;
+    const n = g.q[r*g.w+c]; if (n===NDVI.NODATA) continue; const v = n/10000; vals.push(v); hist[NDVI.cls(v)]++; }
   vals.sort((a,b)=>a-b); const q = p => vals.length ? vals[Math.min(vals.length-1, Math.floor(p*vals.length))] : NaN;
   const mean = vals.length ? vals.reduce((s,v)=>s+v,0)/vals.length : NaN;
   return { mean:+mean.toFixed(3), p10:+q(.1).toFixed(3), median:+q(.5).toFixed(3), p90:+q(.9).toFixed(3), px:tot, used:vals.length, clear: tot ? Math.round(100*vals.length/tot) : 0, hist: hist.map(n=>vals.length?Math.round(1000*n/vals.length)/10:0) };
@@ -5698,7 +5719,7 @@ NDVI.grid = (red, nir, scl, P, scale, offset, epsg) => {
     const x = red.x0+(c+.5)*red.sx, y = red.y0-(r+.5)*red.sy; let s = 4;
     if (scl){ const sc = Math.floor((x-scl.x0)/scl.sx), sr = Math.floor((scl.y0-y)/scl.sy); s = sc>=0&&sr>=0&&sc<scl.w&&sr<scl.h ? scl.data[sr*scl.w+sc] : 0; }
     const R = red.data[r*red.w+c], N = nir.data[r*nir.w+c], v = NDVI.value(R, N, scale, offset);
-    q[r*red.w+c] = NDVI.CLEAR.has(s) && R && N && isFinite(v) ? Math.max(-10000, Math.min(10000, Math.round(v*10000))) : NDVI.NODATA;
+    q[r*red.w+c] = NDVI.CLEAR.has(s) && R && N && isFinite(v) ? Math.round(v*10000) : NDVI.NODATA;
   }
   return { w:red.w, h:red.h, x0:red.x0, y0:red.y0, sx:red.sx, sy:red.sy, epsg, q };
 };
@@ -5752,14 +5773,16 @@ NDVI.render = (g, shape, smooth=true, opts={}) => {
   return { w:W, h:H, px, bounds:[[b.s, b.w],[b.n, b.e]], cell };
 };
 /* ---- Basic / Contrasted colours (like OneSoil). Basic = fixed absolute NDVI scale (unchanged). Contrasted = a red-yellow-green
-   ramp stretched over THIS image's in-field range (2nd–98th percentile of the clear 10 m pixels inside the boundary, at least
-   0.05 wide so a uniform field doesn't turn into noise). Only the colours change; mean / % clear / stats stay the same. */
+   ramp stretched over THIS image's in-field range (2nd–98th percentile of the clear 10 m pixels inside the boundary), kept inside
+   −1…1. v2.17.8: at least 0.15 wide; a field narrower than that (very even) is placed on the ramp by its actual NDVI (0 → red end,
+   0.9 → green end, like Basic), so a uniform healthy field shows green, not mid-ramp yellow, and a note says so.
+   Only the colours change; mean / % clear / stats stay the same. */
 NDVI.MODE_KEY = "tankmix.ndviMode.v1";   // device-only (not a tm.* key, not synced)
 NDVI.mode = () => { try { return localStorage.getItem(NDVI.MODE_KEY)==="contrast" ? "contrast" : "basic"; } catch(e){ return "basic"; } };
 NDVI.setMode = m => { try { localStorage.setItem(NDVI.MODE_KEY, m==="contrast" ? "contrast" : "basic"); } catch(e){} };
 NDVI.CRAMP = ["#a50026","#d73027","#f46d43","#fdae61","#fee08b","#d9ef8b","#a6d96a","#66bd63","#1a9850","#006837"];
 NDVI.CRGB = NDVI.CRAMP.map(h=>[parseInt(h.slice(1,3),16), parseInt(h.slice(3,5),16), parseInt(h.slice(5,7),16)]);
-NDVI.MIN_SPAN = 0.05;
+NDVI.MIN_SPAN = 0.15; NDVI.ANCHOR = [0, 0.9];
 NDVI.contrastAt = (v, rg, smooth) => { const C = NDVI.CRGB, n = C.length; let t = (v-rg.lo)/(rg.hi-rg.lo); t = t<0 ? 0 : t>1 ? 1 : t;
   if (!smooth) return C[Math.min(n-1, Math.floor(t*n))];
   const x = t*(n-1), k = Math.min(n-2, Math.floor(x)), u = x-k, a = C[k], b = C[k+1];
@@ -5772,9 +5795,12 @@ NDVI.stretch = (g, shape) => {
     const ll = P.inv(g.x0+(c+.5)*g.sx, g.y0-(r+.5)*g.sy); if (FX.inShape(ll[1], ll[0], shape)) vals.push(n/10000); }
   let res = null;
   if (vals.length){ vals.sort((a,b)=>a-b); const at = p => vals[Math.min(vals.length-1, Math.max(0, Math.round(p*(vals.length-1))))];
-    let lo = at(0.02), hi = at(0.98);
-    if (hi-lo < NDVI.MIN_SPAN){ const m = (lo+hi)/2; lo = m-NDVI.MIN_SPAN/2; hi = m+NDVI.MIN_SPAN/2; }
-    res = { lo:Math.round(lo*1000)/1000, hi:Math.round(hi*1000)/1000, n:vals.length }; }
+    let lo = Math.max(-1, at(0.02)), hi = Math.min(1, at(0.98)), narrow = false;
+    if (hi-lo < NDVI.MIN_SPAN){ narrow = true; const S = NDVI.MIN_SPAN, m = (lo+hi)/2, A = NDVI.ANCHOR;
+      const t = Math.max(0.05, Math.min(0.95, (m-A[0])/(A[1]-A[0])));   // where the field's NDVI sits on the absolute scale
+      let L = m - t*S; L = Math.min(lo, Math.max(hi-S, L));               // window still holds the whole p2–p98 range
+      L = Math.max(-1, Math.min(1-S, L)); lo = L; hi = L+S; }
+    res = { lo:Math.round(lo*1000)/1000, hi:Math.round(hi*1000)/1000, n:vals.length, narrow }; }
   NDVI.stretchMemo.set(g, {k:sk, r:res}); return res; };
 NDVI.SMOOTH_KEY = "tankmix.ndviSmooth.v1";   // device-only preference (not a tm.* key, not synced)
 NDVI.smoothOn = () => { try { return localStorage.getItem(NDVI.SMOOTH_KEY)!=="0"; } catch(e){ return true; } };
@@ -5790,10 +5816,12 @@ NDVI.picture = (v, shape, smooth, range) => {
 NDVI.load = async (scene, shape) => {
   const P = NDVI.utmFor(scene.epsg), bb = NDVI.utmBox(shape, P);
   const [red, nir, scl] = await Promise.all([COG.window(scene.red, bb), COG.window(scene.nir, bb), COG.window(scene.scl, NDVI.utmBox(shape, P, 40))]);
-  const stats = NDVI.compute(red, nir, scl, shape, P, scene.scale, scene.offset), grid = NDVI.grid(red, nir, scl, P, scene.scale, scene.offset, scene.epsg);
+  const scale = scene.scale ?? 1e-4, oc = NDVI.offsetCheck(red, scl, scale, NDVI.offsetFor(scene));
+  const grid = NDVI.grid(red, nir, scl, P, scale, oc.offset, scene.epsg), stats = NDVI.gridStats(grid, shape, P);
   const ras = NDVI.render(grid, shape, NDVI.smoothOn());
-  return { stats, ras, grid };
+  return { stats, ras, grid, off:oc.offset, offSrc:oc.src };
 };
+NDVI.RV = 3;   // saved-image version: 3 = v2.17.8 offset fix (older saved images recompute)
 NDVI.png = ras => { const cv = document.createElement("canvas"); cv.width = ras.w; cv.height = ras.h; const cx = cv.getContext && cv.getContext("2d"); if (!cx) return ""; cx.putImageData(new ImageData(ras.px, ras.w, ras.h), 0, 0); return cv.toDataURL("image/png"); };
 
 /* ---- caches: scene lists in localStorage (tm.ndviIndex, device-only, not synced); images in IndexedDB ---- */
@@ -5835,7 +5863,7 @@ NDVI.background = async () => {
 /* ---- NDVI view ---- */
 const NV = { W:null, overlay:null, f:null, sel:null, busy:false, cur:null, upgrading:new Set() };
 function legendHtml(st, rg){
-  if (rg) return `<div class="nd-legend nd-cl" aria-label="NDVI legend, Contrasted"><div class="nd-cbar" style="background:linear-gradient(90deg,${NDVI.CRAMP.join(",")})"></div><div class="nd-cends"><span><b>${rg.lo.toFixed(2)}</b> Lower</span><span>Higher <b>${rg.hi.toFixed(2)}</b></span></div><p class="tiny muted nd-cnote">Contrasted: colors are relative to this field and date (its own NDVI range, 2nd–98th percentile of clear pixels), so they can't be compared between dates or fields. Use Basic for absolute NDVI.</p><div class="nd-lg"><span class="nd-sw nd-hatch"></span><span>Cloud / shadow (no data)</span></div></div>`;
+  if (rg) return `<div class="nd-legend nd-cl" aria-label="NDVI legend, Contrasted"><div class="nd-cbar" style="background:linear-gradient(90deg,${NDVI.CRAMP.join(",")})"></div><div class="nd-cends"><span><b>${rg.lo.toFixed(2)}</b> Lower</span><span>Higher <b>${rg.hi.toFixed(2)}</b></span></div>${rg.narrow?`<p class="small nd-even" role="note">Very even field: Contrasted shows little variation. Colors are placed by the field's actual NDVI.</p>`:""}<p class="tiny muted nd-cnote">Contrasted: colors are relative to this field and date (its own NDVI range, 2nd–98th percentile of clear pixels), so they can't be compared between dates or fields. Use Basic for absolute NDVI.</p><div class="nd-lg"><span class="nd-sw nd-hatch"></span><span>Cloud / shadow (no data)</span></div></div>`;
   return `<div class="nd-legend" aria-label="NDVI legend">${NDVI.RAMP.slice().reverse().map((r, i)=>{ const k = NDVI.RAMP.length-1-i; return `<div class="nd-lg"><span class="nd-sw" style="background:${r[1]}"></span><span>${r[2]}</span>${st?`<b>${st.hist[k]}%</b>`:""}</div>`; }).join("")}<div class="nd-lg"><span class="nd-sw nd-hatch"></span><span>Cloud / shadow (no data)</span></div></div>`;
 }
 function modeSeg(v){ const md = NDVI.mode(), dis = v.grid ? "" : ' disabled title="Available once this image updates (online)"';
@@ -5853,7 +5881,7 @@ async function showScene(f, s){
     if (navigator.onLine===false){ st.innerHTML = `<p class="warn small">Offline. This date hasn't been downloaded yet.</p>`; return; }
     st.innerHTML = `<p class="small">Downloading ${esc(s.date)} (≈2–3 MB, only the satellite tiles that cover this field)…</p>`; ndFsInfo(`Downloading ${esc(s.date)}…`);
     const before = COG.bytes;
-    try { const r = await NDVI.load(s, shape); v = { png:NDVI.png(r.ras), grid:r.grid, rv:2, bounds:r.ras.bounds, stats:r.stats, date:s.date, id:s.id, at:Date.now(), kb:Math.round((COG.bytes-before)/1024) }; }
+    try { const r = await NDVI.load(s, shape); v = { png:NDVI.png(r.ras), grid:r.grid, rv:NDVI.RV, off:r.off, offSrc:r.offSrc, bounds:r.ras.bounds, stats:r.stats, date:s.date, id:s.id, at:Date.now(), kb:Math.round((COG.bytes-before)/1024) }; }
     catch(err){ if (NV.f===f && $("ndStat")) $("ndStat").innerHTML = `<p class="warn small" role="alert">⚠ Couldn't load this image: ${esc(err.message||String(err))}</p>`; ndFsInfo(`⚠ Couldn't load ${esc(s.date)}`); if (NV.f===f) NV.cur = null; return; }
     await IMG.put(key, v);
     { const e2 = NDX.get(f), sc = e2 && e2.scenes.find(x=>x.id===s.id); if (sc && sc.clear==null){ sc.clear = v.stats.clear; NDX.put(f, e2); } }
@@ -5862,14 +5890,24 @@ async function showScene(f, s){
   if (NV.f!==f || !$("ndStat")) return;
   const e = NDX.get(f); if (e && (!e.seen || s.date>e.seen)){ e.seen = s.date; NDX.put(f, e); }
   if (NV.overlay && NV.W){ NV.W.map.removeLayer(NV.overlay); NV.overlay = null; }
+  /* v2.17.8: images saved before the offset fix hold wrong values (often above 1). Never show them: say "Updating…" and
+     recompute once from the satellite tiles (when online); the new values, picture and stats replace the old ones. */
+  if ((v.rv||0) < NDVI.RV){ NV.cur = null; if (NFS.overlay && NFS.W){ NFS.W.map.removeLayer(NFS.overlay); NFS.overlay = null; }
+    st.innerHTML = navigator.onLine===false ? `<p class="small" role="status">Updating… This image was saved with an older NDVI calculation and will update when you're back online.</p>`
+      : `<p class="small" role="status">Updating… Recalculating ${esc(s.date)} with the corrected NDVI (one-time, ≈2–3 MB).</p>`;
+    ndFsInfo(`Updating ${esc(s.date)}…`);
+    if (navigator.onLine!==false && !NV.upgrading.has(key)){ NV.upgrading.add(key);
+      NDVI.load(s, shape).then(async r=>{ const nv = Object.assign({}, v, { png:NDVI.png(r.ras), grid:r.grid, rv:NDVI.RV, off:r.off, offSrc:r.offSrc, stats:r.stats, bounds:r.ras.bounds, at:Date.now() }); await IMG.put(key, nv);
+        { const e2 = NDX.get(f), sc = e2 && e2.scenes.find(x=>x.id===s.id); if (sc){ sc.clear = r.stats.clear; NDX.put(f, e2); renderNdviList(f); } }
+        if (NV.f===f && NV.sel===s.id) showScene(f, s); })
+      .catch(err=>{ if (NV.f===f && NV.sel===s.id && $("ndStat")) $("ndStat").innerHTML = `<p class="warn small" role="alert">⚠ Couldn't update this image: ${esc(err.message||String(err))}. Tap the date to try again.</p>`; })
+      .finally(()=>NV.upgrading.delete(key)); }
+    return; }
   const rg = NDVI.mode()==="contrast" && v.grid ? NDVI.stretch(v.grid, shape) : null;
   const pic = NDVI.picture(v, shape, NDVI.smoothOn(), rg);
   if (NV.W && pic){ NV.overlay = L.imageOverlay(pic, v.bounds, {opacity:1, interactive:false}).addTo(NV.W.map); if (NV.outline) NV.outline.bringToFront(); }
-  // images cached before v2.17.4 have no 10 m values: show them as they are, and quietly upgrade once when online
-  if (!v.grid && navigator.onLine!==false && !NV.upgrading.has(key)){ NV.upgrading.add(key);
-    NDVI.load(s, shape).then(async r=>{ const nv = Object.assign({}, v, { png:NDVI.png(r.ras), grid:r.grid, rv:2, bounds:r.ras.bounds, at:Date.now() }); await IMG.put(key, nv); if (NV.f===f && NV.sel===s.id) showScene(f, s); }).catch(()=>{}).finally(()=>NV.upgrading.delete(key)); }
   const m = v.stats; NV.cur = { v, s, rg };
-  st.innerHTML = `<div class="nd-tools"><button type="button" class="btn alt" id="ndFull">⛶ Full Screen</button>${modeSeg(v)}<label class="chk nd-smooth"><input type="checkbox" id="ndSmooth"${NDVI.smoothOn()?" checked":""}${v.grid?"":" disabled"}> Smooth</label></div><div class="nd-mean"><span>Mean NDVI</span><b>${isFinite(m.mean)?m.mean.toFixed(2):"—"}</b><span class="small">${esc(v.date)} · ${m.clear}% of field clear · ${fmt(m.used*0.0247105,1)} ac measured</span></div>
+  st.innerHTML = `<div class="nd-tools"><button type="button" class="btn alt" id="ndFull">⛶ Full Screen</button>${modeSeg(v)}<label class="chk nd-smooth"><input type="checkbox" id="ndSmooth"${NDVI.smoothOn()?" checked":""}${v.grid?"":" disabled"}> Smooth</label></div><div class="nd-mean"><span>Mean NDVI</span><b>${isFinite(m.mean)&&Math.abs(m.mean)<=1?m.mean.toFixed(2):"—"}</b><span class="small">${esc(v.date)} · ${m.clear}% of field clear · ${fmt(m.used*0.0247105,1)} ac measured</span></div>
     <div class="small" style="margin:4px 0 8px">Low 10%: <b>${isFinite(m.p10)?m.p10.toFixed(2):"—"}</b> · Median: <b>${isFinite(m.median)?m.median.toFixed(2):"—"}</b> · High 10%: <b>${isFinite(m.p90)?m.p90.toFixed(2):"—"}</b></div>
     ${m.clear<NDVI.GOOD?`<p class="warn small">⚠ Clouds cover much of the field on this date; the mean uses only the clear part.</p>`:""}
     ${legendHtml(m, rg)}
@@ -5897,7 +5935,7 @@ function ndFsUpdate(f){
   if (NFS.W && pic){ NFS.overlay = L.imageOverlay(pic, v.bounds, {opacity:1, interactive:false}).addTo(NFS.W.map); if (NFS.outline) NFS.outline.bringToFront(); }
   const sm = $("ndFsSmooth"); if (sm){ sm.hidden = !v.grid; sm.setAttribute("aria-pressed", String(NDVI.smoothOn())); sm.textContent = "Smooth: "+(NDVI.smoothOn()?"On":"Off"); }
   const md = $("ndFsMode"); if (md){ md.hidden = !v.grid; md.querySelectorAll("[data-fsmode]").forEach(b=>{ const on = b.dataset.fsmode===NDVI.mode(); b.classList.toggle("on", on); b.setAttribute("aria-pressed", String(on)); }); }
-  ndFsInfo(`<div><b>${esc(f.name)}</b> · ${esc(v.date)}</div><div>Mean NDVI <b class="nd-fs-mean">${isFinite(m.mean)?m.mean.toFixed(2):"—"}</b> · ${m.clear}% Clear</div>`);
+  ndFsInfo(`<div><b>${esc(f.name)}</b> · ${esc(v.date)}</div><div>Mean NDVI <b class="nd-fs-mean">${isFinite(m.mean)&&Math.abs(m.mean)<=1?m.mean.toFixed(2):"—"}</b> · ${m.clear}% Clear</div>`);
   const lg = $("ndFsLegend"); if (lg) lg.innerHTML = legendHtml(m, rg);
   ndFsDates(f);
 }
