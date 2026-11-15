@@ -1229,7 +1229,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
    3. Storage (localStorage)
    4. UI: Mix, Order/Jar test, Lookup (EPA), Saved, Print
    ===================================================================== */
-const APP_VERSION = "2.17.1";
+const APP_VERSION = "2.17.2";
 const TM = window.TM = {};
 
 /* ---------- 1. Constants ---------- */
@@ -1431,7 +1431,9 @@ const uid = () => Math.random().toString(36).slice(2,10)+Date.now().toString(36)
 /* ---------- 3. Storage ---------- */
 const LS = {
   get(k, d){ try{ const v = localStorage.getItem("tm."+k); return v==null ? d : JSON.parse(v); }catch(e){ return d; } },
-  set(k, v){ try{ const raw=JSON.stringify(v); if(TM.beforeLocalWrite)TM.beforeLocalWrite("tm."+k,raw); localStorage.setItem("tm."+k, raw); if (TM.syncChanged) TM.syncChanged("tm."+k); return true; }catch(e){ toast("Storage full or blocked; data not saved. Export a backup."); return false; } }
+  set(k, v){ try{ const raw=JSON.stringify(v); if(TM.beforeLocalWrite)TM.beforeLocalWrite("tm."+k,raw); localStorage.setItem("tm."+k, raw); if (TM.syncChanged) TM.syncChanged("tm."+k); return true; }catch(e){ // v2.17.2: on a full phone, drop the duplicate sync cache copy and save the real list instead of losing it
+    try{ if (TM.freeRecordCache && TM.freeRecordCache("tm."+k)){ const raw=JSON.stringify(v); localStorage.setItem("tm."+k, raw); if (TM.syncChanged) TM.syncChanged("tm."+k); toast("Phone storage is almost full. Saved, but export a backup soon."); return true; } }catch(_){}
+    toast("Storage full or blocked; data not saved. Export a backup."); return false; } }
 };
 const S = {
   settings: Object.assign({units:"us", theme:"light", jar:32, wxSrc:"openmeteo", wxLoc:null, mapLayer:"sat", lastFieldLoc:null}, LS.get("settings", {})),
@@ -2943,9 +2945,18 @@ TM.makeMap = makeMap;
 
 /* ---- saved fields (tm.fields) ---- */
 // extra: optional {grower, farm} (v2.3); blank values never wipe what the field already remembers
+/* v2.17.2: a saved field is identified by Grower + Farm + Name, not by name alone. Before, adding "Field 1" on a
+   second farm matched (and overwrote/moved) the "Field 1" already saved on the first farm, so the oldest same-named
+   fields seemed to vanish while the total stayed the same. There is no limit on the number of fields. */
+const fieldKeyPart = s => String(s||"").trim().toLowerCase();
+function findField(name, grower, farm, except){ const n = fieldKeyPart(name); if (!n) return null;
+  return S.fields.find(x=>x!==except && fieldKeyPart(x.name)===n && fieldKeyPart(x.grower)===fieldKeyPart(grower) && fieldKeyPart(x.farm)===fieldKeyPart(farm)) || null; }
+TM.findField = findField;
 function upsertField(name, loc, extra){
   name = (name||"").trim(); if (!name || !loc || !GEO.valid(loc.lat, loc.lon)) return null;
-  let f = S.fields.find(x=>x.name.toLowerCase()===name.toLowerCase());
+  let f = findField(name, extra&&extra.grower, extra&&extra.farm);
+  // callers that don't say which grower/farm (older code paths) update the one field with that name, if unique
+  if (!f && !extra){ const same = S.fields.filter(x=>fieldKeyPart(x.name)===fieldKeyPart(name)); if (same.length===1) f = same[0]; }
   const rec = { name, lat:loc.lat, lon:loc.lon, boundary:loc.boundary&&loc.boundary.length>=3 ? loc.boundary : [], acres:loc.bAcres||"", updated:Date.now() };
   ["grower","farm"].forEach(k=>{ const v = extra && String(extra[k]||"").trim(); if (v) rec[k] = v; });
   if (f && f.shape){   // v2.17: a shapefile boundary stays unless the record's boundary was actually redrawn
@@ -3215,9 +3226,9 @@ function fieldFormDlg(f, preset){
     if (W && W.drawing) W.setDrawing(false);
     if (st.boundary.length>=3 && !GEO.valid(st.lat, st.lon)){ const c = GEO.center(st.boundary); st.lat = c.lat; st.lon = c.lon; }
     if (!GEO.valid(st.lat, st.lon)){ toast("Tap the map to place the field first"); return; }
-    const gf = GFP.get(), dup = S.fields.find(x=>x!==f && x.name.toLowerCase()===name.toLowerCase());
+    const gf = GFP.get(), dup = findField(name, gf.grower, gf.farm, f);
     if (edit){
-      if (dup){ toast("Another saved field is already called “"+dup.name+"”"); return; }
+      if (dup){ toast("This farm already has a field called “"+dup.name+"”"); return; }
       const oldName = f.name, linked = (logsByField().byId.get(f.id)||[]);
       GF.touchField(f); f.name = name; f.lat = st.lat; f.lon = st.lon; f.grower = gf.grower; f.farm = gf.farm;
       if (JSON.stringify(st.boundary)!==b0){ f.boundary = st.boundary.length>=3 ? st.boundary : []; f.acres = st.boundary.length>=3 ? +GEO.acres(st.boundary).toFixed(2) : ""; delete f.shape; delete f.src; }
@@ -3225,7 +3236,7 @@ function fieldFormDlg(f, preset){
       let nl = 0; if (oldName!==name) linked.forEach(r=>{ if (lc(r.field)===lc(oldName)){ GF.touchLog(r); r.field = name; nl++; } });
       S.fields.sort((a,b)=>a.name.localeCompare(b.name)); persist("fields"); if (nl) persist("log"); GF.ensure(gf.grower, gf.farm); NAV.showField(f);
       closeDlg(); renderLog(); toast("Field saved"); return; }
-    if (dup && !confirm("A field named “"+name+"” exists. Replace its location and boundary?")) return;
+    if (dup && !confirm("This farm already has a field named “"+name+"”. Replace its location and boundary?")) return;
     const nf = upsertField(name, {lat:st.lat, lon:st.lon, boundary:st.boundary.length>=3?st.boundary:[], bAcres:st.boundary.length>=3?+GEO.acres(st.boundary).toFixed(2):""}, gf);
     GF.ensure(gf.grower, gf.farm); NAV.showField(nf); closeDlg(); renderFields(); toast("Field saved"); };
 }
@@ -3296,7 +3307,7 @@ function initLogPick(r){
   const linkField = x => { drawG(x.grower||""); drawF(x.farm||""); gn.hidden = fn.hidden = true; drawD(x.id); syncHidden(); if (FMAP.loadField) FMAP.loadField(x);
     if ($("lgAcres") && !num($("lgAcres").value) && num(x.acres)){ $("lgAcres").value = +(+x.acres).toFixed(2); $("lgAcres").dispatchEvent(new Event("input")); } };
   // initial state from the record (or a restored draft): a linked field id wins, then a saved field with that name
-  const L0 = r.loc||{}, f0 = (L0.fieldId && S.fields.find(x=>x.id===L0.fieldId && lc(x.name)===lc(hD.value||x.name))) || fieldByName(hD.value);
+  const L0 = r.loc||{}, f0 = (L0.fieldId && S.fields.find(x=>x.id===L0.fieldId && lc(x.name)===lc(hD.value||x.name))) || fieldByName(hD.value, hG.value, hF.value);
   drawG(f0 ? f0.grower||hG.value : hG.value); drawF(f0 ? f0.farm||hF.value : hF.value); gn.hidden = fn.hidden = true;
   if (f0 && !matches().includes(f0)){ drawG(f0.grower||""); drawF(f0.farm||""); }
   drawD(f0 && f0.id, hD.value); syncHidden();
@@ -3313,7 +3324,7 @@ function initLogPick(r){
   fn.oninput = () => { drawD("", ds.value===LGP_NEW ? dn.value.trim() : ""); syncHidden(); };
   dn.oninput = () => { syncHidden(); };
   // typing the name of a saved field links it
-  dn.onchange = () => { const x = fieldByName(dn.value); if (x){ dn.hidden = true; linkField(x); } else syncHidden(); changed(); };
+  dn.onchange = () => { const x = fieldByName(dn.value, g(), f()); if (x){ dn.hidden = true; linkField(x); } else syncHidden(); changed(); };
   [gn, fn, dn].forEach(i=>i.addEventListener("change", changed));
 }
 TM.initLogPick = initLogPick;
@@ -4412,7 +4423,7 @@ function syncSameItem(key,a,b){
     return !a.epa && !b.epa && !a.waReg && !b.waReg && isWsdaLib(a)===isWsdaLib(b) && syncNorm(a.name)===syncNorm(b.name);
   }
   if (key==='tm.mixes') return syncNorm(a.name)===syncNorm(b.name) && syncStable(syncNoIds(a.mix))===syncStable(syncNoIds(b.mix));
-  if (key==='tm.fields') return syncNorm(a.name)===syncNorm(b.name) && a.lat===b.lat && a.lon===b.lon;
+  if (key==='tm.fields') return syncNorm(a.name)===syncNorm(b.name) && syncNorm(a.grower)===syncNorm(b.grower) && syncNorm(a.farm)===syncNorm(b.farm) && a.lat===b.lat && a.lon===b.lon;
   return syncStable(syncNoIds(a))===syncStable(syncNoIds(b));
 }
 function syncMergeList(key,older,newer){
@@ -5043,10 +5054,16 @@ function recordGuardLocal(owner=SYNC.meta.owner){
     // Keep a bounded private recovery archive; never upload another account's local data.
     try{localStorage.setItem(archiveKey,JSON.stringify(archive.slice(-8)));}catch(e){toast('Storage full: older-app edits could not be archived. Export a backup from the old app.');}
     for(const item of legacy)if(item?.id && !state.rows[recordKey(c,item.id)] && !good.some(v=>String(v.id)===String(item.id)))good.push(item);
-    const next=JSON.stringify(good);recordCacheWrite('tm.'+c,next,owner);localStorage.setItem('tm.'+c,next);changed=true;
+    const next=JSON.stringify(good);
+    // v2.17.2: a full phone storage must never throw here (it aborted sync/reload). Free the duplicate cache copy,
+    // save the merged list itself first, then re-create the cache if there is room.
+    try{recordCacheWrite('tm.'+c,next,owner);localStorage.setItem('tm.'+c,next);}
+    catch(e){localStorage.removeItem(recordCacheKey(owner,c));try{localStorage.setItem('tm.'+c,next);try{recordCacheWrite('tm.'+c,next,owner);}catch(_){}}catch(_){toast('Phone storage is full: export a backup now so no '+c+' are lost.');}}
+    changed=true;
   }return changed;
 }
 TM.beforeLocalWrite=recordCacheWrite;
+TM.freeRecordCache=key=>{if(!syncCollection(key))return false;const k=recordCacheKey(SYNC.meta.owner,key.replace(/^tm\./,''));if(localStorage.getItem(k)===null)return false;localStorage.removeItem(k);return true;};
 TM.recordGuardLocal=recordGuardLocal;
 function downloadLegacyRecovery(){
   const snapshots=syncRead('tankmix.legacyRecovery.v2.'+(SYNC.meta.owner||'device'),[]);
@@ -5368,7 +5385,7 @@ FX.readShapefiles = async files => {
 FX.saveImported = ft => {
   const shape = ft.shape, outer = shape.map(p=>p[0]).sort((a,b)=>Math.abs(ringArea2(b))-Math.abs(ringArea2(a)))[0], c = GEO.center(outer);
   const single = shape.length===1 && shape[0].length===1;
-  let f = S.fields.find(x=>x.name.toLowerCase()===ft.name.toLowerCase());
+  let f = findField(ft.name, ft.grower, ft.farm);
   const rec = { name:ft.name, lat:c.lat, lon:c.lon, boundary:outer, acres:ft.acres, src:ft.src, updated:Date.now() };
   if (ft.grower) rec.grower = ft.grower; if (ft.farm) rec.farm = ft.farm;
   if (f){ Object.assign(f, rec); if (single) delete f.shape; else f.shape = shape; }
@@ -5395,7 +5412,8 @@ async function importShapefiles(fileList){
   const pre = IMP.preset || NAV.preset(); IMP.preset = null; const P = fs.map((f, i)=>{ const ex = S.fields.find(x=>x.name.toLowerCase()===f.name.toLowerCase());
     return bindGfPicker("fi"+i, f.grower || (ex&&ex.grower) || pre.grower, f.farm || (ex&&ex.farm) || (f.grower ? "" : pre.farm)); });
   if ($("fiAllGrower")) bindGfPicker("fiAll", "", "", gf=>{ P.forEach(x=>x.set(gf.grower, gf.farm)); });
-  fs.forEach((f, i)=>{ $("fiName"+i).oninput = e=>{ const ex = S.fields.find(x=>x.name.toLowerCase()===e.target.value.trim().toLowerCase()); $("fiEx"+i).textContent = ex ? " · updates the saved field with this name" : ""; }; });
+  fs.forEach((f, i)=>{ const exHint = ()=>{ const gf = P[i].get(), ex = findField($("fiName"+i).value, gf.grower, gf.farm); $("fiEx"+i).textContent = ex ? " · updates this farm's saved field with this name" : ""; };
+    $("fiName"+i).oninput = exHint; ["Grower","Farm"].forEach(k=>{ const el = $("fi"+i+k); if (el) el.addEventListener("change", ()=>setTimeout(exHint)); }); exHint(); });
   $("fiSave").onclick = ()=>{ let n = 0;
     let first = null;
     fs.forEach((f, i)=>{ if (!$("fiOn"+i).checked) return; const name = $("fiName"+i).value.trim(); if (!name) return; const gf = P[i].get(); const sf = FX.saveImported(Object.assign({}, f, {name}, gf)); GF.ensure(gf.grower, gf.farm); first = first || sf; n++; });
@@ -5739,7 +5757,12 @@ function blankLog(){
     applicator:S.settings.lastApplicator||"", license:S.settings.lastLicense||"", wx:{}, notes:"", rinsate:"", loc:sf ? fieldLoc(sf.name) : null };
 }
 // a saved field with this exact name (e.g. the mix is named after the field) prefills the location
-function fieldByName(name){ return (name && S.fields.find(x=>x.name.toLowerCase()===String(name).trim().toLowerCase())) || null; }
+// v2.17.2: names can repeat on different farms. With a grower/farm given, link only that farm's field (or the one
+// field with that name anywhere); without one, keep the old first-match behaviour (mix name → field prefill).
+function fieldByName(name, grower, farm){ const lo = s => String(s||"").trim().toLowerCase(), n = lo(name); if (!n) return null;
+  const all = S.fields.filter(x=>lo(x.name)===n); if (!all.length) return null;
+  if (grower===undefined && farm===undefined) return all[0];
+  return all.find(x=>lo(x.grower)===lo(grower) && lo(x.farm)===lo(farm)) || (lo(grower) ? all.filter(x=>lo(x.grower)===lo(grower)) : all).find((x,i,a)=>a.length===1) || null; }
 function fieldLoc(name){ const f = fieldByName(name);
   return f ? {lat:f.lat, lon:f.lon, boundary:clone(f.boundary||[]), bAcres:f.acres||"", fieldId:f.id} : null; }
 /* ---- v2.3 grower / farm (optional strings on log records and saved fields) ---- */

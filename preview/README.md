@@ -1,6 +1,6 @@
-# SprayTrue (v2.17.2 — PREVIEW ONLY; live is v2.17.1)
+# SprayTrue (v2.17.2 — live; published Nov 14, 2026)
 
-## v2.17.2 — Saved fields: no 21-field “limit”; same names on different farms (preview)
+## v2.17.2 — Saved fields: no 21-field “limit”; same names on different farms (live)
 
 - **Fix**: adding fields no longer makes older ones disappear. There was never a number cap; a saved field was identified by its **name alone**. Adding “Field 1” on a second farm matched the “Field 1” already saved on the first farm and overwrote it (new pin/boundary, moved to the new farm), with a “Replace its location and boundary?” prompt. So after ~21 fields on one farm, each new field on the next farm replaced the oldest same-named one and the total stayed at 21.
 - A saved field is now identified by **Grower + Farm + Name** everywhere: ＋ Add Field / ✏️ Edit Field, spray record “Save as a field”, shapefile import (the “updates this farm's saved field” hint follows the row's grower/farm), linking a typed field name on a spray record, and first-contact sync matching. Same name on the **same** farm still asks to replace (no duplicates). No limit on the number of fields (tested with 84).

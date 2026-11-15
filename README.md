@@ -1,4 +1,12 @@
-# SprayTrue (v2.17.1 — live; published Nov 14, 2026)
+# SprayTrue (v2.17.2 — live; published Nov 14, 2026)
+
+## v2.17.2 — Saved fields: no 21-field “limit”; same names on different farms (live)
+
+- **Fix**: adding fields no longer makes older ones disappear. There was never a number cap; a saved field was identified by its **name alone**. Adding “Field 1” on a second farm matched the “Field 1” already saved on the first farm and overwrote it (new pin/boundary, moved to the new farm), with a “Replace its location and boundary?” prompt. So after ~21 fields on one farm, each new field on the next farm replaced the oldest same-named one and the total stayed at 21.
+- A saved field is now identified by **Grower + Farm + Name** everywhere: ＋ Add Field / ✏️ Edit Field, spray record “Save as a field”, shapefile import (the “updates this farm's saved field” hint follows the row's grower/farm), linking a typed field name on a spray record, and first-contact sync matching. Same name on the **same** farm still asks to replace (no duplicates). No limit on the number of fields (tested with 84).
+- Full phone storage: if saving a list fails because storage is full, the app drops its duplicate sync cache copy and saves the real list (with a warning to export a backup) instead of losing the change; the old-tab guard no longer aborts sync/refresh on a full phone.
+- Recovery: fields overwritten before this fix had their pin/boundary replaced in place on the phone, and no field had reached the cloud yet, so they can't be restored automatically; re-add them (they now keep separate farms). Nothing else is deleted or changed by this update. No schema change.
+- Tests: `tools/test31.js` (23 assertions: 63 same-named fields across 3 farms via the real Add Field dialog, 84 total with boundaries, reload, record-sync round trip to a second device, near-full storage).
 
 ## v2.17.1 — Opening a saved mix keeps your view (live)
 
