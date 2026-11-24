@@ -360,6 +360,8 @@ def is_epa_reg(reg: str) -> bool:
     return True
   return False
 
+NETWORK_ERRORS = (TimeoutError, OSError)  # urllib URLError and socket timeouts are OSError subclasses
+
 def main():
   ap = argparse.ArgumentParser()
   ap.add_argument("--adjuvants", action="store_true")
@@ -386,16 +388,31 @@ def main():
 
   s = Session()
   fresh = {}
+  unreachable = {}
+  def attempt(kind, fn):
+    # WSDA network failures (e.g. a search that never answers) keep that category's
+    # last verified rows. Incomplete or inconsistent downloads still raise and write nothing.
+    try:
+      fresh[kind] = fn()
+    except NETWORK_ERRORS as e:
+      if not any(p.get("kind") == kind for p in existing):
+        raise
+      unreachable[kind] = f"{type(e).__name__}: {e}"
+      log(f"::warning::WSDA {kind} search did not respond ({unreachable[kind]}); kept last verified {kind} rows")
   if args.adjuvants:
-    fresh["adjuvant"] = scrape_pest(s, "adjuvant", {"chkSpray": "on"})
+    attempt("adjuvant", lambda: scrape_pest(s, "adjuvant", {"chkSpray": "on"}))
   if args.minrisk:
-    fresh["25b"] = scrape_pest(s, "25b", {"chk25b": "on"})
+    attempt("25b", lambda: scrape_pest(s, "25b", {"chk25b": "on"}))
   if args.section3:
-    fresh["section3"] = scrape_pest(s, "section3", {"chkSection3": "on"})
+    attempt("section3", lambda: scrape_pest(s, "section3", {"chkSection3": "on"}))
   if args.fertilizer:
-    fresh["fertilizer"] = scrape_fert(s)
+    attempt("fertilizer", lambda: scrape_fert(s))
+  if not fresh:
+    raise RuntimeError("WSDA did not respond for any category; last successful dataset retained")
   stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
   refreshes = dict(previous.get("refreshes") or {})
+  for kind, err in unreachable.items():
+    refreshes[kind] = {**(refreshes.get(kind) or {}), "last_failed": {"at": stamp, "error": err[:200]}}
   # Only fully validated categories replace old rows; nothing is written if ANY scrape fails.
   by_id = {k:p for k,p in by_id.items() if p.get("kind") not in fresh}
   for kind, rows in fresh.items():

@@ -125,4 +125,30 @@ class FertilizerGrid(unittest.TestCase):
             self.assertEqual(out['refreshes']['fertilizer']['duplicate_rows'],1)
             self.assertEqual(out['refreshes']['fertilizer']['source_rows'],2)
             self.assertTrue(out['refreshes']['fertilizer']['verified'])
+class Unreachable(unittest.TestCase):
+    def test_fertilizer_timeout_keeps_last_verified_rows_and_refreshes_others(self):
+        with tempfile.TemporaryDirectory() as d:
+            p=pathlib.Path(d)/'wsda-products.json'
+            prev={'products':[row(77),row(9,'25b'),{**row(5,'fertilizer'),'db':'waltr'}],'fetched':'2020-01-01T00:00:00Z',
+                  'refreshes':{'fertilizer':{'at':'2020-01-01T00:00:00Z','count':1,'verified':True}}}
+            p.write_text(json.dumps(prev))
+            with patch.object(m,'OUT',p),patch.object(m,'scrape_pest',side_effect=[[row(1)],[row(2,'25b')]]),patch.object(m,'scrape_fert',side_effect=TimeoutError('The read operation timed out')),patch('sys.argv',['update_wsda.py','--adjuvants','--minrisk','--fertilizer']):
+                m.main()
+            out=json.loads(p.read_text())
+            self.assertEqual({(r['kind'],r['id']) for r in out['products']},{('adjuvant',1),('25b',2),('fertilizer',5)})
+            f=out['refreshes']['fertilizer']
+            self.assertEqual(f['at'],'2020-01-01T00:00:00Z');self.assertTrue(f['verified']);self.assertIn('TimeoutError',f['last_failed']['error'])
+            self.assertEqual(out['last_successful'],'2020-01-01T00:00:00Z')
+    def test_timeout_without_previous_rows_still_fails(self):
+        with tempfile.TemporaryDirectory() as d:
+            p=pathlib.Path(d)/'wsda-products.json';original=json.dumps({'products':[row(77)]});p.write_text(original)
+            with patch.object(m,'OUT',p),patch.object(m,'scrape_pest',return_value=[row(1)]),patch.object(m,'scrape_fert',side_effect=TimeoutError('x')),patch('sys.argv',['update_wsda.py','--adjuvants','--fertilizer']):
+                with self.assertRaises(TimeoutError):m.main()
+            self.assertEqual(p.read_text(),original)
+    def test_all_unreachable_writes_nothing(self):
+        with tempfile.TemporaryDirectory() as d:
+            p=pathlib.Path(d)/'wsda-products.json';original=json.dumps({'products':[{**row(5,'fertilizer'),'db':'waltr'}]});p.write_text(original)
+            with patch.object(m,'OUT',p),patch.object(m,'scrape_fert',side_effect=TimeoutError('x')),patch('sys.argv',['update_wsda.py','--fertilizer']):
+                with self.assertRaisesRegex(RuntimeError,'any category'):m.main()
+            self.assertEqual(p.read_text(),original)
 if __name__=='__main__':unittest.main()
